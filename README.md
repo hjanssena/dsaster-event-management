@@ -98,6 +98,5 @@ Maintains and coordinates the end-to-end lifecycle state machine of each event:
 
 ## Non-Functional & Architectural Goals
 
-- **Event-Driven Decoupling:** Emits domain events (`EventCreated`, `EventPublished`, `SaleDateScheduled`, `EventStateChanged`) to Kafka/RabbitMQ for downstream consumption.
 - **High Read Reliability:** Provides stable, cache-friendly event projections to isolate organizer configuration loads from high-traffic fan spikes.
 - **Time Synchronization:** Guarantees accurate, server-controlled sale date scheduling, avoiding client-side time manipulation.
