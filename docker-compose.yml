@@ -1,0 +1,32 @@
+
+
+services:
+  event-api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Apunta al nombre del servicio "event-db" dentro de la red de Docker
+      - DATABASE_URL=postgres://usuario:password@event-db:5432/event_store
+    depends_on:
+      event-db:
+        condition: service_healthy
+
+  event-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=usuario
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=event_store
+    ports:
+      - "5432:5432"
+    volumes:
+      - event_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U usuario -d event_store"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  event_db_data:
