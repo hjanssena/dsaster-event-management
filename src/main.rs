@@ -7,23 +7,13 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-// Declaración de los módulos (las capas de tu arquitectura)
-mod api;
-mod config;
-mod core;
-mod model;
-mod repository;
-mod service;
-
-use config::AppConfig;
-
-// El estado que Axum compartirá con todos los controladores
-#[derive(Clone)]
-pub struct AppState {
-    pub db: DatabaseConnection, // obligatorio para la conexión principal a la base de datos
-    pub ticket_db: Option<DatabaseConnection>, // Opcional por ahora
-    pub search_db: Option<DatabaseConnection>, // Opcional por ahora
-}
+// Importamos los módulos definidos en src/lib.rs
+use eventManagement_api::{
+    api,
+    config::AppConfig,
+    openapi,
+    AppState,
+};
 
 #[tokio::main]
 async fn main() {

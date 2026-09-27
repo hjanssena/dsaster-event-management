@@ -1,0 +1,30 @@
+openapi: 3.0.3
+info:
+  title: eventManagement_api
+  description: ''
+  license:
+    name: ''
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      tags:
+      - crate::api::health_api
+      summary: Endpoint de Health Check
+      description: |-
+        Se utiliza para monitoreo (ej. Kubernetes, Docker Healthcheck, balanceadores de carga).
+        Devuelve un HTTP 200 OK con un JSON confirmando que el servicio está vivo.
+      operationId: health_check
+      responses:
+        '200':
+          description: The service is up and responding correctly
+          content:
+            application/json:
+              schema: {}
+              example:
+                message: Event Management API is running normally
+                status: ok
+                version: 0.1.0
+tags:
+- name: eventManagement_api
+  description: Event Management API Endpoints
