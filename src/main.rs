@@ -1,29 +1,20 @@
+use std::sync::Arc;
 use axum::{
-    routing::{get, post, put},
+    routing::get,
     Router,
 };
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::Database;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-// Declaración de los módulos (las capas de tu arquitectura)
-mod api;
-mod config;
-mod core;
-mod model;
-mod repository;
-mod service;
-
-use config::AppConfig;
-
-// El estado que Axum compartirá con todos los controladores
-#[derive(Clone)]
-pub struct AppState {
-    pub db: DatabaseConnection, // obligatorio para la conexión principal a la base de datos
-    pub ticket_db: Option<DatabaseConnection>, // Opcional por ahora
-    pub search_db: Option<DatabaseConnection>, // Opcional por ahora
-}
+use eventManagement_api::{
+    api,
+    config::AppConfig,
+    repository::SeaOrmEventRepository,
+    service::EventService,
+    AppState,
+};
 
 #[tokio::main]
 async fn main() {
@@ -41,20 +32,25 @@ async fn main() {
         .await
         .expect("Error al conectar con la base de datos principal");
 
+    // 3. Inicializar Repositorios y Servicios (Inyección de Dependencias)
+    let repo = Arc::new(SeaOrmEventRepository::new(event_db.clone()));
+    let event_service = Arc::new(EventService::new(repo));
+
     let state = AppState {
         db: event_db,
+        event_service,
         ticket_db: None,
         search_db: None,
     };
 
-    // 3. Configurar CORS
-    // Nota: CorsLayer::permissive() permite llamadas desde cualquier origen (bueno para desarrollo local).
-    // Para producción, deberías restringir los orígenes permitidos.
+    // 4. Configurar CORS
     let cors = CorsLayer::permissive();
 
-    // 4. Configurar el Router de Axum
+    // 5. Configurar el Router de Axum
     let app = Router::new()
         .route("/health", get(api::health_api::health_check))
+        .nest("/api/v1/events", api::event_api::routes())
+        .nest("/events", api::event_api::routes()) // Alias compatible
         .layer(TraceLayer::new_for_http()) // Middleware para logs HTTP
         .layer(cors) // Middleware para CORS
         .with_state(state);
