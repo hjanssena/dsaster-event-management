@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -9,7 +10,8 @@ use crate::core::error::AppError;
 #[allow(unused_imports)]
 use crate::core::error::ErrorResponseDto;
 use crate::model::dtos::{
-    EventPaginationQueryDto, EventResponseDto, PaginatedEventSummaryResponse,
+    CreateEventRequestDto, EventConfirmationDto, EventPaginationQueryDto, EventResponseDto,
+    PaginatedEventSummaryResponse,
 };
 use crate::AppState;
 
@@ -57,9 +59,29 @@ pub async fn get_events(
     Ok(Json(result))
 }
 
+/// Registra y crea un nuevo evento en el sistema.
+#[utoipa::path(
+    post,
+    path = "/api/v1/events",
+    request_body = CreateEventRequestDto,
+    responses(
+        (status = 201, description = "Evento creado exitosamente", body = EventConfirmationDto),
+        (status = 400, description = "Datos de entrada inválidos o recinto inexistente", body = ErrorResponseDto),
+        (status = 500, description = "Error interno del servidor", body = ErrorResponseDto)
+    ),
+    tag = "events"
+)]
+pub async fn create_event(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateEventRequestDto>,
+) -> Result<(StatusCode, Json<EventConfirmationDto>), AppError> {
+    let confirmation = state.event_service.create_event(payload).await?;
+    Ok((StatusCode::CREATED, Json(confirmation)))
+}
+
 /// Crea el sub-enrutador de Axum para las rutas de eventos
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(get_events))
+        .route("/", get(get_events).post(create_event))
         .route("/:id", get(get_event_by_id))
 }

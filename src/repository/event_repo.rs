@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use async_trait::async_trait;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, PaginatorTrait, QueryFilter,
-    QueryOrder,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -11,9 +11,9 @@ use uuid::Uuid;
 use crate::core::error::AppError;
 use crate::model::{
     dtos::{
-        EventMediaDto, EventPaginationQueryDto, EventPricingTierDto, EventResponseDto,
-        EventSaleDto, EventScheduleDto, EventSummaryDto, PaginatedEventSummaryResponse,
-        PaginatedResponseDto,
+        CreateEventRequestDto, EventConfirmationDto, EventMediaDto, EventPaginationQueryDto,
+        EventPricingTierDto, EventResponseDto, EventSaleDto, EventScheduleDto, EventSummaryDto,
+        PaginatedEventSummaryResponse, PaginatedResponseDto,
     },
     event, event_media, event_pricing_tier, event_sale, event_schedule,
 };
@@ -29,7 +29,16 @@ pub trait EventRepository: Send + Sync {
         &self,
         query: &EventPaginationQueryDto,
     ) -> Result<PaginatedEventSummaryResponse, AppError>;
+
+    /// Crea y persiste un evento de forma atómica en base de datos
+    async fn create_event(
+        &self,
+        dto: &CreateEventRequestDto,
+        event_id: Uuid,
+        organizer_id: Uuid,
+    ) -> Result<EventConfirmationDto, AppError>;
 }
+
 
 /// Implementación de producción respaldada por SeaORM y PostgreSQL/MySQL
 pub struct SeaOrmEventRepository {
@@ -197,7 +206,59 @@ impl EventRepository for SeaOrmEventRepository {
             total_pages,
         })
     }
+
+    async fn create_event(
+        &self,
+        dto: &CreateEventRequestDto,
+        event_id: Uuid,
+        organizer_id: Uuid,
+    ) -> Result<EventConfirmationDto, AppError> {
+        let now = chrono::Utc::now();
+        let status = "Scheduled".to_string();
+
+        let tx = self.db.begin().await?;
+
+        let event_active = event::ActiveModel {
+            id: Set(event_id),
+            organizer_id: Set(organizer_id),
+            venue_id: Set(dto.venue_id),
+            name: Set(dto.name.clone()),
+            description: Set(dto.description.clone()),
+            event_type: Set(dto.event_type.clone().unwrap_or_else(|| "Concert".to_string())),
+            age_policy: Set(dto.age_policy.clone().unwrap_or_else(|| "All ages".to_string())),
+            status: Set(status.clone()),
+            terms: Set(dto.terms.clone()),
+            artist: Set(Some(dto.artist.clone())),
+            created_at: Set(now),
+            updated_at: Set(now),
+        };
+        event_active.insert(&tx).await?;
+
+        let schedule_active = event_schedule::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            event_id: Set(event_id),
+            starts_at: Set(dto.date),
+            ends_at: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+        };
+        schedule_active.insert(&tx).await?;
+
+        tx.commit().await?;
+
+        Ok(EventConfirmationDto {
+            id: event_id,
+            message: "Event created successfully".to_string(),
+            name: dto.name.clone(),
+            artist: dto.artist.clone(),
+            date: dto.date,
+            venue_id: dto.venue_id,
+            status,
+            created_at: now,
+        })
+    }
 }
+
 
 /// Implementación en memoria para pruebas unitarias sin dependencias externas
 #[derive(Clone, Default)]
@@ -298,4 +359,51 @@ impl EventRepository for MockEventRepository {
             total_pages,
         })
     }
+
+    async fn create_event(
+        &self,
+        dto: &CreateEventRequestDto,
+        event_id: Uuid,
+        organizer_id: Uuid,
+    ) -> Result<EventConfirmationDto, AppError> {
+        let now = chrono::Utc::now();
+        let status = "Scheduled".to_string();
+
+        let full_event = EventResponseDto {
+            id: event_id,
+            organizer_id,
+            venue_id: dto.venue_id,
+            name: dto.name.clone(),
+            description: dto.description.clone(),
+            event_type: dto.event_type.clone().unwrap_or_else(|| "Concert".to_string()),
+            age_policy: dto.age_policy.clone().unwrap_or_else(|| "All ages".to_string()),
+            status: status.clone(),
+            terms: dto.terms.clone(),
+            artist: Some(dto.artist.clone()),
+            schedules: vec![EventScheduleDto {
+                id: Uuid::new_v4(),
+                starts_at: dto.date,
+                ends_at: None,
+            }],
+            pricing_tiers: vec![],
+            sales: vec![],
+            media: vec![],
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.insert(full_event).await;
+
+        Ok(EventConfirmationDto {
+            id: event_id,
+            message: "Event created successfully".to_string(),
+            name: dto.name.clone(),
+            artist: dto.artist.clone(),
+            date: dto.date,
+            venue_id: dto.venue_id,
+            status,
+            created_at: now,
+        })
+    }
 }
+

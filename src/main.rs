@@ -12,7 +12,7 @@ use eventManagement_api::{
     api,
     config::AppConfig,
     repository::SeaOrmEventRepository,
-    service::EventService,
+    service::{EventService, HttpVenueClient, MockVenueClient, VenueClient},
     AppState,
 };
 
@@ -34,7 +34,16 @@ async fn main() {
 
     // 3. Inicializar Repositorios y Servicios (Inyección de Dependencias)
     let repo = Arc::new(SeaOrmEventRepository::new(event_db.clone()));
-    let event_service = Arc::new(EventService::new(repo));
+
+    let venue_client: Arc<dyn VenueClient> = if config.mock_venue_service {
+        info!("Iniciando VenueClient en modo MOCK (simulado en memoria)");
+        Arc::new(MockVenueClient::new_permissive())
+    } else {
+        info!("Iniciando HttpVenueClient conectado a {}", config.venue_service_url);
+        Arc::new(HttpVenueClient::new(config.venue_service_url.clone()))
+    };
+
+    let event_service = Arc::new(EventService::new(repo, venue_client));
 
     let state = AppState {
         db: event_db,

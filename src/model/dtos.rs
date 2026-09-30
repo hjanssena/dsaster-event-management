@@ -24,6 +24,44 @@ pub struct EventPaginationQueryDto {
 
 // --- Request DTOs (Para recibir datos del cliente) ---
 
+/// Request payload para la creación y registro de eventos
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateEventRequestDto {
+    /// Nombre del evento
+    pub name: String,
+    /// Artista
+    pub artist: String,
+    /// Fecha y hora del evento
+    pub date: DateTime<Utc>,
+    /// Identificador del recinto
+    #[serde(alias = "venueId")]
+    pub venue_id: Uuid,
+    /// Descripción opcional del evento
+    pub description: Option<String>,
+    /// Política de edad (por defecto "All ages")
+    pub age_policy: Option<String>,
+    /// Tipo de evento (por defecto "Concert")
+    pub event_type: Option<String>,
+    /// Términos y condiciones opcionales
+    pub terms: Option<String>,
+    /// Identificador del organizador
+    #[serde(alias = "organizerId")]
+    pub organizer_id: Option<Uuid>,
+}
+
+/// Confirmación retornada tras la creación exitosa de un evento (HTTP 201)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+pub struct EventConfirmationDto {
+    pub id: Uuid,
+    pub message: String,
+    pub name: String,
+    pub artist: String,
+    pub date: DateTime<Utc>,
+    pub venue_id: Uuid,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateEventDto {
     pub organizer_id: Uuid,
@@ -36,6 +74,7 @@ pub struct CreateEventDto {
     pub terms: Option<String>,
     pub artist: Option<String>,
 }
+
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateEventPricingTierDto {

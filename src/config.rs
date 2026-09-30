@@ -4,6 +4,8 @@ use std::env;
 pub struct AppConfig {
     pub database_url: String,
     pub server_addr: String,
+    pub venue_service_url: String,
+    pub mock_venue_service: bool,
 }
 
 impl AppConfig {
@@ -13,11 +15,17 @@ impl AppConfig {
 
         let database_url = env::var("DATABASE_URL").expect("Falta la variable DATABASE_URL en el .env");
         let server_addr = env::var("SERVER_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+        let venue_service_url =
+            env::var("VENUE_SERVICE_URL").unwrap_or_else(|_| "http://localhost:3001".to_string());
+        let mock_venue_service = env::var("MOCK_VENUE_SERVICE")
+            .map(|val| val.to_lowercase() != "false" && val != "0")
+            .unwrap_or(true); // Activo por defecto mientras el equipo de Venue construye su servicio
 
         Self {
             database_url,
             server_addr,
+            venue_service_url,
+            mock_venue_service,
         }
     }
 }
-
