@@ -11,8 +11,8 @@ use tracing_subscriber::FmtSubscriber;
 use eventManagement_api::{
     api,
     config::AppConfig,
-    repository::SeaOrmEventRepository,
-    service::{EventService, HttpVenueClient, MockVenueClient, VenueClient},
+    repository::{MockPartnerRepository, PartnerRepository, SeaOrmEventRepository, SeaOrmPartnerRepository},
+    service::{AuthService, EventService, HttpVenueClient, MockTokenVerifier, MockVenueClient, VenueClient},
     AppState,
 };
 
@@ -45,9 +45,22 @@ async fn main() {
 
     let event_service = Arc::new(EventService::new(repo, venue_client));
 
+    // Partners: en modo MOCK se precargan un organizador y un venue owner de desarrollo
+    let partner_repo: Arc<dyn PartnerRepository> = if config.mock_auth {
+        info!("Iniciando PartnerRepository en modo MOCK (partners de desarrollo en memoria)");
+        Arc::new(MockPartnerRepository::with_dev_partners())
+    } else {
+        Arc::new(SeaOrmPartnerRepository::new(event_db.clone()))
+    };
+
+    // Único verificador disponible hasta que el servicio de autenticación defina el JWT
+    info!("Iniciando TokenVerifier en modo MOCK (tokens `mock:<uuid>`)");
+    let auth_service = Arc::new(AuthService::new(Arc::new(MockTokenVerifier::new()), partner_repo));
+
     let state = AppState {
         db: event_db,
         event_service,
+        auth_service,
         ticket_db: None,
         search_db: None,
     };

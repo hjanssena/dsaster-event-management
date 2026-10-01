@@ -41,6 +41,30 @@ Si compilas todo dentro de Docker en cada cambio, se desperdicia mucho tiempo.
 
 ---
 
+## Autenticación Simulada (MOCK_AUTH)
+
+Mientras el servicio de autenticación define el JWT, los endpoints de registro (`POST /events`) usan tokens simulados con formato `mock:<uuid-del-partner>`:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/events \
+  -H "Authorization: Bearer mock:11111111-1111-1111-1111-111111111111" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Concierto", "artist": "Artista", "date": "2026-12-01T21:00:00Z", "venue_id": "<uuid>"}'
+```
+
+Con `MOCK_AUTH=true` (valor por defecto) se precargan en memoria dos partners de desarrollo:
+
+| Partner | ID | Rol |
+| --- | --- | --- |
+| `dev_organizer` | `11111111-1111-1111-1111-111111111111` | `organizer` |
+| `dev_venue_owner` | `22222222-2222-2222-2222-222222222222` | `venue_owner` |
+
+Con `MOCK_AUTH=false` los partners se consultan en la tabla `partners` de la base de datos (el token sigue siendo simulado).
+
+Respuestas esperadas: sin token o con token inválido → `401`; partner inexistente → `401`; venue owner → `403`.
+
+---
+
 ## Flujo Full Docker (Solo para Testing Final)
 
 Si necesitas simular cómo se comportará la aplicación en un servidor de Producción, puedes meter ambos componentes (Base de Datos y API) dentro de Docker.

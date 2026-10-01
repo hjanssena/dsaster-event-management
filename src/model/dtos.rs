@@ -44,9 +44,6 @@ pub struct CreateEventRequestDto {
     pub event_type: Option<String>,
     /// Términos y condiciones opcionales
     pub terms: Option<String>,
-    /// Identificador del organizador
-    #[serde(alias = "organizerId")]
-    pub organizer_id: Option<Uuid>,
 }
 
 /// Confirmación retornada tras la creación exitosa de un evento (HTTP 201)

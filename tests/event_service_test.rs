@@ -10,9 +10,20 @@ use eventManagement_api::{
         CreateEventRequestDto, EventMediaDto, EventPaginationQueryDto, EventPricingTierDto,
         EventResponseDto, EventSaleDto, EventScheduleDto,
     },
+    model::partner::{self, PartnerRole},
     repository::MockEventRepository,
     service::{EventService, MockVenueClient},
 };
+
+fn create_partner(role: PartnerRole) -> partner::Model {
+    partner::Model {
+        id: Uuid::new_v4(),
+        username: format!("{:?}_test", role),
+        role,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
 
 fn create_sample_event(id: Uuid, name: &str, status: &str, venue_id: Uuid) -> EventResponseDto {
     EventResponseDto {
@@ -267,6 +278,7 @@ async fn test_create_event_success_minimal_fields() {
     let venue_id = Uuid::new_v4();
     let future_date = Utc::now() + Duration::days(30);
 
+    let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
         name: "Arctic Monkeys Live".to_string(),
         artist: "Arctic Monkeys".to_string(),
@@ -276,10 +288,9 @@ async fn test_create_event_success_minimal_fields() {
         age_policy: None,
         event_type: None,
         terms: None,
-        organizer_id: None,
     };
 
-    let confirmation = service.create_event(request).await.unwrap();
+    let confirmation = service.create_event(request, &organizer).await.unwrap();
 
     assert!(!confirmation.id.is_nil());
     assert_eq!(confirmation.name, "Arctic Monkeys Live");
@@ -295,6 +306,7 @@ async fn test_create_event_success_minimal_fields() {
     assert_eq!(queried.schedules[0].starts_at, future_date);
     assert_eq!(queried.age_policy, "All ages"); // Default aplicado
     assert_eq!(queried.event_type, "Concert");   // Default aplicado
+    assert_eq!(queried.organizer_id, organizer.id); // Atribuido al organizador autenticado
 }
 
 #[tokio::test]
@@ -303,6 +315,7 @@ async fn test_create_event_empty_name() {
     let venue_client = Arc::new(MockVenueClient::new_permissive());
     let service = EventService::new(mock_repo, venue_client);
 
+    let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
         name: "   ".to_string(), // Inválido: solo espacios
         artist: "Coldplay".to_string(),
@@ -312,10 +325,9 @@ async fn test_create_event_empty_name() {
         age_policy: None,
         event_type: None,
         terms: None,
-        organizer_id: None,
     };
 
-    let err = service.create_event(request).await.unwrap_err();
+    let err = service.create_event(request, &organizer).await.unwrap_err();
     match err {
         AppError::BadRequest(msg) => assert!(msg.contains("name cannot be empty")),
         _ => panic!("Se esperaba BadRequest, se obtuvo: {:?}", err),
@@ -328,6 +340,7 @@ async fn test_create_event_empty_artist() {
     let venue_client = Arc::new(MockVenueClient::new_permissive());
     let service = EventService::new(mock_repo, venue_client);
 
+    let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
         name: "Lollapalooza 2026".to_string(),
         artist: "".to_string(), // Inválido: vacío
@@ -337,10 +350,9 @@ async fn test_create_event_empty_artist() {
         age_policy: None,
         event_type: None,
         terms: None,
-        organizer_id: None,
     };
 
-    let err = service.create_event(request).await.unwrap_err();
+    let err = service.create_event(request, &organizer).await.unwrap_err();
     match err {
         AppError::BadRequest(msg) => assert!(msg.contains("Artist name cannot be empty")),
         _ => panic!("Se esperaba BadRequest, se obtuvo: {:?}", err),
@@ -353,6 +365,7 @@ async fn test_create_event_past_date() {
     let venue_client = Arc::new(MockVenueClient::new_permissive());
     let service = EventService::new(mock_repo, venue_client);
 
+    let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
         name: "Concierto Antiguo".to_string(),
         artist: "The Beatles".to_string(),
@@ -362,10 +375,9 @@ async fn test_create_event_past_date() {
         age_policy: None,
         event_type: None,
         terms: None,
-        organizer_id: None,
     };
 
-    let err = service.create_event(request).await.unwrap_err();
+    let err = service.create_event(request, &organizer).await.unwrap_err();
     match err {
         AppError::BadRequest(msg) => assert!(msg.contains("valid future calendar date")),
         _ => panic!("Se esperaba BadRequest, se obtuvo: {:?}", err),
@@ -384,6 +396,7 @@ async fn test_create_event_venue_not_found() {
     let service = EventService::new(mock_repo, venue_client);
 
     let unknown_venue = Uuid::new_v4();
+    let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
         name: "Show en Recinto Desconocido".to_string(),
         artist: "Radiohead".to_string(),
@@ -393,12 +406,50 @@ async fn test_create_event_venue_not_found() {
         age_policy: None,
         event_type: None,
         terms: None,
-        organizer_id: None,
     };
 
-    let err = service.create_event(request).await.unwrap_err();
+    let err = service.create_event(request, &organizer).await.unwrap_err();
     match err {
         AppError::UnprocessableEntity(msg) => assert!(msg.contains("Venue does not exist or is invalid")),
         _ => panic!("Se esperaba UnprocessableEntity, se obtuvo: {:?}", err),
     }
+}
+
+#[tokio::test]
+async fn test_create_event_venue_owner_forbidden() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let venue_client = Arc::new(MockVenueClient::new_permissive());
+    let service = EventService::new(mock_repo.clone(), venue_client);
+
+    let venue_owner = create_partner(PartnerRole::VenueOwner);
+    let request = CreateEventRequestDto {
+        name: "Evento de Venue Owner".to_string(),
+        artist: "Artista".to_string(),
+        date: Utc::now() + Duration::days(10),
+        venue_id: Uuid::new_v4(),
+        description: None,
+        age_policy: None,
+        event_type: None,
+        terms: None,
+    };
+
+    let err = service.create_event(request, &venue_owner).await.unwrap_err();
+    match err {
+        AppError::Forbidden(msg) => assert!(msg.contains("Only organizers")),
+        _ => panic!("Se esperaba Forbidden, se obtuvo: {:?}", err),
+    }
+
+    // No se persistió ningún evento
+    let page = service
+        .get_events(EventPaginationQueryDto {
+            page: None,
+            per_page: None,
+            status: None,
+            venue_id: None,
+            organizer_id: None,
+            id: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(page.total_items, 0);
 }

@@ -78,7 +78,7 @@ paths:
     post:
       tags:
       - events
-      summary: Registra y crea un nuevo evento en el sistema.
+      summary: Registra y crea un nuevo evento en el sistema a nombre del organizador autenticado.
       operationId: create_event
       requestBody:
         content:
@@ -99,12 +99,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
+        '401':
+          description: Token ausente o inválido, o partner inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '403':
+          description: El partner autenticado no es organizador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
         '500':
           description: Error interno del servidor
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
+      security:
+      - bearer_auth: []
   /api/v1/events/{id}:
     get:
       tags:
@@ -180,11 +194,11 @@ components:
           nullable: true
         artist:
           type: string
-          description: Artista o banda principal
+          description: Artista
         date:
           type: string
           format: date-time
-          description: Fecha y hora del evento en estándar ISO-8601 (ej. "2026-11-20T21:00:00Z")
+          description: Fecha y hora del evento
         description:
           type: string
           description: Descripción opcional del evento
@@ -195,12 +209,7 @@ components:
           nullable: true
         name:
           type: string
-          description: Nombre del evento / espectáculo
-        organizer_id:
-          type: string
-          format: uuid
-          description: Identificador del organizador (opcional, asigna backstage por defecto)
-          nullable: true
+          description: Nombre del evento
         terms:
           type: string
           description: Términos y condiciones opcionales
@@ -208,7 +217,7 @@ components:
         venue_id:
           type: string
           format: uuid
-          description: Identificador del recinto (admite venue_id o venueId)
+          description: Identificador del recinto
     ErrorResponseDto:
       type: object
       required:
@@ -448,6 +457,10 @@ components:
           type: integer
           format: int64
           minimum: 0
+  securitySchemes:
+    bearer_auth:
+      type: http
+      scheme: bearer
 tags:
 - name: events
   description: Endpoints de consulta y gestión de eventos

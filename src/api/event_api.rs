@@ -6,6 +6,7 @@ use axum::{
 };
 use uuid::Uuid;
 
+use crate::api::auth::AuthenticatedPartner;
 use crate::core::error::AppError;
 #[allow(unused_imports)]
 use crate::core::error::ErrorResponseDto;
@@ -59,7 +60,7 @@ pub async fn get_events(
     Ok(Json(result))
 }
 
-/// Registra y crea un nuevo evento en el sistema.
+/// Registra y crea un nuevo evento en el sistema a nombre del organizador autenticado.
 #[utoipa::path(
     post,
     path = "/api/v1/events",
@@ -67,15 +68,21 @@ pub async fn get_events(
     responses(
         (status = 201, description = "Evento creado exitosamente", body = EventConfirmationDto),
         (status = 400, description = "Datos de entrada inválidos o recinto inexistente", body = ErrorResponseDto),
+        (status = 401, description = "Token ausente o inválido, o partner inexistente", body = ErrorResponseDto),
+        (status = 403, description = "El partner autenticado no es organizador", body = ErrorResponseDto),
         (status = 500, description = "Error interno del servidor", body = ErrorResponseDto)
+    ),
+    security(
+        ("bearer_auth" = [])
     ),
     tag = "events"
 )]
 pub async fn create_event(
     State(state): State<AppState>,
+    AuthenticatedPartner(partner): AuthenticatedPartner,
     Json(payload): Json<CreateEventRequestDto>,
 ) -> Result<(StatusCode, Json<EventConfirmationDto>), AppError> {
-    let confirmation = state.event_service.create_event(payload).await?;
+    let confirmation = state.event_service.create_event(payload, &partner).await?;
     Ok((StatusCode::CREATED, Json(confirmation)))
 }
 

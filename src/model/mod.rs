@@ -5,3 +5,4 @@ pub mod event_pricing_tier;
 pub mod event_sale;
 pub mod event_schedule;
 pub mod event_seat;
+pub mod partner;

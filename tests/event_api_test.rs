@@ -17,8 +17,8 @@ use eventManagement_api::{
         EventConfirmationDto, EventMediaDto, EventPricingTierDto, EventResponseDto, EventSaleDto,
         EventScheduleDto, PaginatedEventSummaryResponse,
     },
-    repository::MockEventRepository,
-    service::{EventService, MockVenueClient, VenueClient},
+    repository::{MockEventRepository, MockPartnerRepository, DEV_ORGANIZER_ID, DEV_VENUE_OWNER_ID},
+    service::{AuthService, EventService, MockTokenVerifier, MockVenueClient, VenueClient},
     AppState,
 };
 
@@ -27,9 +27,14 @@ fn create_test_app(
     venue_client: Arc<dyn VenueClient>,
 ) -> Router {
     let service = Arc::new(EventService::new(mock_repo, venue_client));
+    let auth_service = Arc::new(AuthService::new(
+        Arc::new(MockTokenVerifier::new()),
+        Arc::new(MockPartnerRepository::with_dev_partners()),
+    ));
     let state = AppState {
         db: sea_orm::DatabaseConnection::Disconnected,
         event_service: service,
+        auth_service,
         ticket_db: None,
         search_db: None,
     };
@@ -39,6 +44,38 @@ fn create_test_app(
         .nest("/api/v1/events", api::event_api::routes())
         .nest("/events", api::event_api::routes())
         .with_state(state)
+}
+
+fn bearer(partner_id: Uuid) -> String {
+    format!("Bearer {}", MockTokenVerifier::token_for(partner_id))
+}
+
+fn post_event_request(payload: &serde_json::Value, authorization: Option<String>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/api/v1/events")
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(value) = authorization {
+        builder = builder.header(header::AUTHORIZATION, value);
+    }
+    builder
+        .body(Body::from(serde_json::to_vec(payload).unwrap()))
+        .unwrap()
+}
+
+fn valid_event_payload() -> serde_json::Value {
+    serde_json::json!({
+        "name": "Evento Autenticado",
+        "artist": "Artista",
+        "date": (Utc::now() + Duration::days(30)).to_rfc3339(),
+        "venueId": Uuid::new_v4().to_string()
+    })
+}
+
+async fn error_message(response: axum::response::Response) -> String {
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    json["error"].as_str().unwrap().to_string()
 }
 
 fn create_sample_event(id: Uuid, name: &str) -> EventResponseDto {
@@ -233,6 +270,7 @@ async fn test_http_post_event_201_created() {
                 .method("POST")
                 .uri("/api/v1/events")
                 .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, bearer(DEV_ORGANIZER_ID))
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
         )
@@ -274,6 +312,7 @@ async fn test_http_post_event_alias_route() {
                 .method("POST")
                 .uri("/events")
                 .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, bearer(DEV_ORGANIZER_ID))
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
         )
@@ -304,6 +343,7 @@ async fn test_http_post_event_past_date_400() {
                 .method("POST")
                 .uri("/api/v1/events")
                 .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, bearer(DEV_ORGANIZER_ID))
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
         )
@@ -343,6 +383,7 @@ async fn test_http_post_event_venue_not_found_422() {
                 .method("POST")
                 .uri("/api/v1/events")
                 .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, bearer(DEV_ORGANIZER_ID))
                 .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                 .unwrap(),
         )
@@ -354,4 +395,107 @@ async fn test_http_post_event_venue_not_found_422() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json["error"].as_str().unwrap().contains("Venue does not exist or is invalid"));
+}
+
+// ==================== Tests de Autenticación y Rol (POST /events) ====================
+
+#[tokio::test]
+async fn test_http_post_event_without_token_401() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let response = app
+        .oneshot(post_event_request(&valid_event_payload(), None))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(error_message(response).await.contains("Missing bearer token"));
+}
+
+#[tokio::test]
+async fn test_http_post_event_non_bearer_scheme_401() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let response = app
+        .oneshot(post_event_request(
+            &valid_event_payload(),
+            Some("Basic dXN1YXJpbzpwYXNzd29yZA==".to_string()),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(error_message(response).await.contains("Missing bearer token"));
+}
+
+#[tokio::test]
+async fn test_http_post_event_invalid_token_401() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let response = app
+        .oneshot(post_event_request(
+            &valid_event_payload(),
+            Some("Bearer no-es-un-token-valido".to_string()),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(error_message(response).await.contains("Invalid token"));
+}
+
+#[tokio::test]
+async fn test_http_post_event_unknown_partner_401() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let response = app
+        .oneshot(post_event_request(&valid_event_payload(), Some(bearer(Uuid::new_v4()))))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(error_message(response).await.contains("Partner not found"));
+}
+
+#[tokio::test]
+async fn test_http_post_event_venue_owner_403() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let response = app
+        .oneshot(post_event_request(&valid_event_payload(), Some(bearer(DEV_VENUE_OWNER_ID))))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(error_message(response).await.contains("Only organizers"));
+}
+
+#[tokio::test]
+async fn test_http_post_event_ignores_body_organizer_id() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo.clone(), Arc::new(MockVenueClient::new_permissive()));
+
+    // Un organizer_id enviado en el body nunca se usa para atribuir el evento (VE-06)
+    let mut payload = valid_event_payload();
+    payload["organizer_id"] = serde_json::json!(Uuid::new_v4().to_string());
+    payload["organizerId"] = serde_json::json!(Uuid::new_v4().to_string());
+
+    let response = app
+        .oneshot(post_event_request(&payload, Some(bearer(DEV_ORGANIZER_ID))))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let confirmation: EventConfirmationDto = serde_json::from_slice(&body).unwrap();
+
+    use eventManagement_api::repository::EventRepository;
+    let stored = mock_repo.find_by_id(confirmation.id).await.unwrap().unwrap();
+    assert_eq!(stored.organizer_id, DEV_ORGANIZER_ID);
 }
