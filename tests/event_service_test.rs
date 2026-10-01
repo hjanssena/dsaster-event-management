@@ -398,7 +398,7 @@ async fn test_create_event_venue_not_found() {
 
     let err = service.create_event(request).await.unwrap_err();
     match err {
-        AppError::BadRequest(msg) => assert!(msg.contains("Venue does not exist or is invalid")),
-        _ => panic!("Se esperaba BadRequest, se obtuvo: {:?}", err),
+        AppError::UnprocessableEntity(msg) => assert!(msg.contains("Venue does not exist or is invalid")),
+        _ => panic!("Se esperaba UnprocessableEntity, se obtuvo: {:?}", err),
     }
 }

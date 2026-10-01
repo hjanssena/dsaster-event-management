@@ -20,6 +20,9 @@ pub enum AppError {
 
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    #[error("Unprocessable entity: {0}")]
+    UnprocessableEntity(String),
 }
 
 // Implementación necesaria para que Axum sepa cómo devolver este error a los clientes
@@ -37,6 +40,7 @@ impl IntoResponse for AppError {
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
         };
 
         let body = Json(json!({

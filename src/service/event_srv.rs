@@ -73,7 +73,7 @@ impl EventService {
         // 4. Validar existencia del recinto en Venue Service
         let venue_exists = self.venue_client.verify_venue_exists(dto.venue_id).await?;
         if !venue_exists {
-            return Err(AppError::BadRequest(
+            return Err(AppError::UnprocessableEntity(
                 "Venue does not exist or is invalid".to_string(),
             ));
         }

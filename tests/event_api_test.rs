@@ -318,7 +318,7 @@ async fn test_http_post_event_past_date_400() {
 }
 
 #[tokio::test]
-async fn test_http_post_event_venue_not_found_400() {
+async fn test_http_post_event_venue_not_found_422() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let mut allowed_venues = HashSet::new();
     let registered_venue = Uuid::new_v4();
@@ -349,7 +349,7 @@ async fn test_http_post_event_venue_not_found_400() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
