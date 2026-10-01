@@ -2,6 +2,7 @@
 name = "eventManagement_api"
 version = "0.1.0"
 edition = "2024"
+default-run = "eventManagement_api"
 
 [dependencies]
 # Framework web y asincronía
@@ -9,7 +10,8 @@ axum = "0.7"
 tokio = { version = "1.1", features = ["full"] }
 
 # ORM (Ajusta "sqlx-postgres" a "sqlx-mysql" si una bd es mysql)
-sea-orm = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+sea-orm = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-uuid", "with-chrono", "with-rust_decimal"] }
+sea-orm-migration = { version = "1.0", features = ["runtime-tokio-rustls", "sqlx-postgres"] }
 
 # Serialización y utilidades
 serde = { version = "1.0", features = ["derive"] }
@@ -17,6 +19,13 @@ serde_json = "1.0"
 dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 thiserror = "1.0"
+utoipa = { version = "4", features = ["axum_extras", "yaml", "chrono", "uuid", "decimal"] }
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+rust_decimal = { version = "1.43.0", features = ["serde"] }
+async-trait = "0.1"
+reqwest = { version = "0.12", features = ["json"] }
+

@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use thiserror::Error;
@@ -20,6 +20,15 @@ pub enum AppError {
 
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    #[error("Unprocessable entity: {0}")]
+    UnprocessableEntity(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 }
 
 // Implementación necesaria para que Axum sepa cómo devolver este error a los clientes
@@ -29,14 +38,23 @@ impl IntoResponse for AppError {
             AppError::DatabaseError(err) => {
                 error!("Database error occurred: {:?}", err);
                 // No exponemos el error real de la BD al cliente por seguridad
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             AppError::InternalServerError(msg) => {
                 error!("Internal server error: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
         };
 
         let body = Json(json!({
@@ -47,3 +65,7 @@ impl IntoResponse for AppError {
     }
 }
 
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ErrorResponseDto {
+    pub error: String,
+}

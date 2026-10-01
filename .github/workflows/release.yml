@@ -1,0 +1,35 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: "checkout code"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "setup rust"
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "cache dependencies"
+        uses: Swatinem/rust-cache@v2
+
+      # Compila y corre el ejecutable para crear el openapi.yml
+      - name: "Generate openapi def"
+        run: cargo run --bin generate_openapi
+
+      # Publica el Release en GitHub con el archivo openapi.yml adjunto
+      - name: "Release"
+        uses: softprops/action-gh-release@v2
+        with:
+          files: openapi.yml
+          fail_on_unmatched_files: true
