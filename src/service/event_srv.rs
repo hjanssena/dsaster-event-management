@@ -7,6 +7,7 @@ use crate::model::dtos::{
     CreateEventRequestDto, EventConfirmationDto, EventPaginationQueryDto, EventResponseDto,
     PaginatedEventSummaryResponse,
 };
+use crate::model::partner::{self, PartnerRole};
 use crate::repository::EventRepository;
 use crate::service::VenueClient;
 
@@ -46,12 +47,20 @@ impl EventService {
         self.repo.find_paginated(&query).await
     }
 
-    /// Registra y crea un nuevo evento en el sistema.
-    /// Valida nombre, artista, fecha de calendario futura y existencia del recinto con Venue Service.
+    /// Registra y crea un nuevo evento en el sistema a nombre del organizador autenticado.
+    /// Valida rol, nombre, artista, fecha de calendario futura y existencia del recinto con Venue Service.
     pub async fn create_event(
         &self,
         dto: CreateEventRequestDto,
+        organizer: &partner::Model,
     ) -> Result<EventConfirmationDto, AppError> {
+        // 0. Solo los organizadores pueden registrar eventos (VE-07)
+        if organizer.role != PartnerRole::Organizer {
+            return Err(AppError::Forbidden(
+                "Only organizers can register events".to_string(),
+            ));
+        }
+
         // 1. Validar nombre no vacío
         if dto.name.trim().is_empty() {
             return Err(AppError::BadRequest("Event name cannot be empty".to_string()));
@@ -78,8 +87,8 @@ impl EventService {
             ));
         }
 
-        // 5. Asignar organizer_id por defecto si no viene provisto (backstage default)
-        let organizer_id = dto.organizer_id.unwrap_or_else(|| Uuid::from_u128(1));
+        // 5. El organizador se obtiene de la sesión, nunca del formulario (VE-06)
+        let organizer_id = organizer.id;
         let event_id = Uuid::new_v4();
 
         // 6. Persistir atómicamente en base de datos

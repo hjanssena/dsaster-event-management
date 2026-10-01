@@ -1,4 +1,5 @@
-use utoipa::OpenApi;
+use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use utoipa::{Modify, OpenApi};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -22,9 +23,24 @@ use utoipa::OpenApi;
             crate::core::error::ErrorResponseDto,
         )
     ),
+    modifiers(&BearerAuth),
     tags(
         (name = "events", description = "Endpoints de consulta y gestión de eventos"),
         (name = "health", description = "Monitoreo y disponibilidad del servicio")
     )
 )]
 pub struct ApiDoc;
+
+/// Registra el esquema de seguridad Bearer usado por los endpoints de registro
+struct BearerAuth;
+
+impl Modify for BearerAuth {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearer_auth",
+                SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)),
+            );
+        }
+    }
+}
