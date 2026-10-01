@@ -1,7 +1,7 @@
+use eventManagement_api::openapi::ApiDoc;
 use std::fs::File;
 use std::io::Write;
 use utoipa::OpenApi;
-use eventManagement_api::openapi::ApiDoc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Genera la especificación OpenAPI en formato YAML desde utoipa

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, PaginatorTrait,
     QueryFilter, QueryOrder, Set, TransactionTrait,
 };
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -38,7 +38,6 @@ pub trait EventRepository: Send + Sync {
         organizer_id: Uuid,
     ) -> Result<EventConfirmationDto, AppError>;
 }
-
 
 /// Implementación de producción respaldada por SeaORM y PostgreSQL/MySQL
 pub struct SeaOrmEventRepository {
@@ -224,8 +223,14 @@ impl EventRepository for SeaOrmEventRepository {
             venue_id: Set(dto.venue_id),
             name: Set(dto.name.clone()),
             description: Set(dto.description.clone()),
-            event_type: Set(dto.event_type.clone().unwrap_or_else(|| "Concert".to_string())),
-            age_policy: Set(dto.age_policy.clone().unwrap_or_else(|| "All ages".to_string())),
+            event_type: Set(dto
+                .event_type
+                .clone()
+                .unwrap_or_else(|| "Concert".to_string())),
+            age_policy: Set(dto
+                .age_policy
+                .clone()
+                .unwrap_or_else(|| "All ages".to_string())),
             status: Set(status.clone()),
             terms: Set(dto.terms.clone()),
             artist: Set(Some(dto.artist.clone())),
@@ -258,7 +263,6 @@ impl EventRepository for SeaOrmEventRepository {
         })
     }
 }
-
 
 /// Implementación en memoria para pruebas unitarias sin dependencias externas
 #[derive(Clone, Default)]
@@ -300,13 +304,23 @@ impl EventRepository for MockEventRepository {
                 if query.id.is_some_and(|id| ev.id != id) {
                     return false;
                 }
-                if query.status.as_ref().is_some_and(|status| &ev.status != status) {
+                if query
+                    .status
+                    .as_ref()
+                    .is_some_and(|status| &ev.status != status)
+                {
                     return false;
                 }
-                if query.venue_id.is_some_and(|venue_id| ev.venue_id != venue_id) {
+                if query
+                    .venue_id
+                    .is_some_and(|venue_id| ev.venue_id != venue_id)
+                {
                     return false;
                 }
-                if query.organizer_id.is_some_and(|organizer_id| ev.organizer_id != organizer_id) {
+                if query
+                    .organizer_id
+                    .is_some_and(|organizer_id| ev.organizer_id != organizer_id)
+                {
                     return false;
                 }
                 true
@@ -323,7 +337,6 @@ impl EventRepository for MockEventRepository {
         } else {
             total_items.div_ceil(per_page)
         };
-
 
         let start = ((page - 1) * per_page) as usize;
         let page_items = if start >= filtered.len() {
@@ -375,8 +388,14 @@ impl EventRepository for MockEventRepository {
             venue_id: dto.venue_id,
             name: dto.name.clone(),
             description: dto.description.clone(),
-            event_type: dto.event_type.clone().unwrap_or_else(|| "Concert".to_string()),
-            age_policy: dto.age_policy.clone().unwrap_or_else(|| "All ages".to_string()),
+            event_type: dto
+                .event_type
+                .clone()
+                .unwrap_or_else(|| "Concert".to_string()),
+            age_policy: dto
+                .age_policy
+                .clone()
+                .unwrap_or_else(|| "All ages".to_string()),
             status: status.clone(),
             terms: dto.terms.clone(),
             artist: Some(dto.artist.clone()),
@@ -406,4 +425,3 @@ impl EventRepository for MockEventRepository {
         })
     }
 }
-

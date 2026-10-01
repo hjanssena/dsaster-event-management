@@ -13,10 +13,23 @@ impl MigrationTrait for Migration {
                     .table(Partners::Table)
                     .if_not_exists()
                     .col(ColumnDef::new(Partners::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(Partners::Username).string_len(255).not_null().unique_key())
+                    .col(
+                        ColumnDef::new(Partners::Username)
+                            .string_len(255)
+                            .not_null()
+                            .unique_key(),
+                    )
                     .col(ColumnDef::new(Partners::Role).string_len(20).not_null())
-                    .col(ColumnDef::new(Partners::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(Partners::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(Partners::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Partners::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -37,8 +50,16 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Events::Status).string_len(50).not_null())
                     .col(ColumnDef::new(Events::Terms).text().null())
                     .col(ColumnDef::new(Events::Artist).string_len(255).null())
-                    .col(ColumnDef::new(Events::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(Events::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(Events::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Events::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_events_organizer_id")
@@ -57,12 +78,33 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(EventSchedules::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(EventSchedules::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(EventSchedules::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(EventSchedules::EventId).uuid().not_null())
-                    .col(ColumnDef::new(EventSchedules::StartsAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventSchedules::EndsAt).timestamp_with_time_zone().null())
-                    .col(ColumnDef::new(EventSchedules::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventSchedules::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(EventSchedules::StartsAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSchedules::EndsAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSchedules::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSchedules::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_event_schedules_event_id")
@@ -81,14 +123,39 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(EventPricingTiers::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(EventPricingTiers::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(EventPricingTiers::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(EventPricingTiers::EventId).uuid().not_null())
-                    .col(ColumnDef::new(EventPricingTiers::Name).string_len(100).not_null())
+                    .col(
+                        ColumnDef::new(EventPricingTiers::Name)
+                            .string_len(100)
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(EventPricingTiers::Description).text().null())
-                    .col(ColumnDef::new(EventPricingTiers::Price).decimal_len(12, 2).not_null())
-                    .col(ColumnDef::new(EventPricingTiers::Currency).string_len(10).not_null())
-                    .col(ColumnDef::new(EventPricingTiers::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventPricingTiers::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(EventPricingTiers::Price)
+                            .decimal_len(12, 2)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventPricingTiers::Currency)
+                            .string_len(10)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventPricingTiers::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventPricingTiers::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_event_pricing_tiers_event_id")
@@ -107,12 +174,33 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(EventSales::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(EventSales::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(EventSales::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(EventSales::EventId).uuid().not_null())
-                    .col(ColumnDef::new(EventSales::StartsAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventSales::EndsAt).timestamp_with_time_zone().null())
-                    .col(ColumnDef::new(EventSales::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventSales::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(EventSales::StartsAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSales::EndsAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSales::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSales::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_event_sales_event_id")
@@ -131,12 +219,29 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(EventMedia::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(EventMedia::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(EventMedia::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(EventMedia::EventId).uuid().not_null())
-                    .col(ColumnDef::new(EventMedia::MediaType).string_len(50).not_null())
+                    .col(
+                        ColumnDef::new(EventMedia::MediaType)
+                            .string_len(50)
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(EventMedia::Url).string_len(1024).not_null())
-                    .col(ColumnDef::new(EventMedia::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventMedia::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(EventMedia::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventMedia::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_event_media_event_id")
@@ -155,12 +260,25 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(EventSeats::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(EventSeats::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(EventSeats::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(EventSeats::EventId).uuid().not_null())
                     .col(ColumnDef::new(EventSeats::VenueSeatId).uuid().not_null())
                     .col(ColumnDef::new(EventSeats::PricingTierId).uuid().not_null())
-                    .col(ColumnDef::new(EventSeats::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(EventSeats::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(EventSeats::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(EventSeats::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_event_seats_event_id")
@@ -186,13 +304,52 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Drop en orden inverso para respetar las claves foráneas
-        manager.drop_table(Table::drop().table(EventSeats::Table).if_exists().to_owned()).await?;
-        manager.drop_table(Table::drop().table(EventMedia::Table).if_exists().to_owned()).await?;
-        manager.drop_table(Table::drop().table(EventSales::Table).if_exists().to_owned()).await?;
-        manager.drop_table(Table::drop().table(EventPricingTiers::Table).if_exists().to_owned()).await?;
-        manager.drop_table(Table::drop().table(EventSchedules::Table).if_exists().to_owned()).await?;
-        manager.drop_table(Table::drop().table(Events::Table).if_exists().to_owned()).await?;
-        manager.drop_table(Table::drop().table(Partners::Table).if_exists().to_owned()).await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(EventSeats::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(EventMedia::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(EventSales::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(EventPricingTiers::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(EventSchedules::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Events::Table).if_exists().to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Partners::Table).if_exists().to_owned())
+            .await?;
         Ok(())
     }
 }

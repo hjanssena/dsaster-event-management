@@ -5,6 +5,8 @@
     "husky": "^9.1.7"
   },
   "scripts": {
+    "lint": "cargo fmt --all -- --check && cargo lint",
+    "format": "cargo fmt --all",
     "prepare": "husky"
   }
 }

@@ -14,7 +14,8 @@ impl AppConfig {
         // Aseguramos que se intente cargar el archivo .env, aunque si no existe, no falla.
         dotenvy::dotenv().ok();
 
-        let database_url = env::var("DATABASE_URL").expect("Falta la variable DATABASE_URL en el .env");
+        let database_url =
+            env::var("DATABASE_URL").expect("Falta la variable DATABASE_URL en el .env");
         let server_addr = env::var("SERVER_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
         let venue_service_url =
             env::var("VENUE_SERVICE_URL").unwrap_or_else(|_| "http://localhost:3001".to_string());

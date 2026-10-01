@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use chrono::Utc;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::core::error::AppError;
@@ -28,7 +28,10 @@ impl EventService {
     pub async fn get_event_by_id(&self, id: Uuid) -> Result<EventResponseDto, AppError> {
         match self.repo.find_by_id(id).await? {
             Some(event) => Ok(event),
-            None => Err(AppError::NotFound(format!("Event with ID {} not found", id))),
+            None => Err(AppError::NotFound(format!(
+                "Event with ID {} not found",
+                id
+            ))),
         }
     }
 
@@ -63,12 +66,16 @@ impl EventService {
 
         // 1. Validar nombre no vacío
         if dto.name.trim().is_empty() {
-            return Err(AppError::BadRequest("Event name cannot be empty".to_string()));
+            return Err(AppError::BadRequest(
+                "Event name cannot be empty".to_string(),
+            ));
         }
 
         // 2. Validar artista no vacío
         if dto.artist.trim().is_empty() {
-            return Err(AppError::BadRequest("Artist name cannot be empty".to_string()));
+            return Err(AppError::BadRequest(
+                "Artist name cannot be empty".to_string(),
+            ));
         }
 
         // 3. Validar fecha válida en calendario (debe ser futura)

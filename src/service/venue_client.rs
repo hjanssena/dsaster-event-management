@@ -1,7 +1,7 @@
+use async_trait::async_trait;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -85,8 +85,15 @@ impl HttpVenueClient {
 #[async_trait]
 impl VenueClient for HttpVenueClient {
     async fn verify_venue_exists(&self, venue_id: Uuid) -> Result<bool, AppError> {
-        let url = format!("{}/api/v1/venues/{}", self.base_url.trim_end_matches('/'), venue_id);
-        info!("Consultando existencia de recinto en Venue Service: {}", url);
+        let url = format!(
+            "{}/api/v1/venues/{}",
+            self.base_url.trim_end_matches('/'),
+            venue_id
+        );
+        info!(
+            "Consultando existencia de recinto en Venue Service: {}",
+            url
+        );
 
         match self.client.get(&url).send().await {
             Ok(response) => {

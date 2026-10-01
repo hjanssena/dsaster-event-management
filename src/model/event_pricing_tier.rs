@@ -40,4 +40,3 @@ impl Related<super::event_seat::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-

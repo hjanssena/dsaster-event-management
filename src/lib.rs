@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
-use std::sync::Arc;
 use sea_orm::DatabaseConnection;
+use std::sync::Arc;
 
 pub mod api;
 pub mod config;

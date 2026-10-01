@@ -42,4 +42,3 @@ impl Related<super::event_pricing_tier::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-
