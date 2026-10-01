@@ -6,6 +6,7 @@ pub struct AppConfig {
     pub server_addr: String,
     pub venue_service_url: String,
     pub mock_venue_service: bool,
+    pub mock_auth: bool,
 }
 
 impl AppConfig {
@@ -20,12 +21,16 @@ impl AppConfig {
         let mock_venue_service = env::var("MOCK_VENUE_SERVICE")
             .map(|val| val.to_lowercase() != "false" && val != "0")
             .unwrap_or(true); // Activo por defecto mientras el equipo de Venue construye su servicio
+        let mock_auth = env::var("MOCK_AUTH")
+            .map(|val| val.to_lowercase() != "false" && val != "0")
+            .unwrap_or(true); // Activo por defecto mientras el servicio de autenticación define el JWT
 
         Self {
             database_url,
             server_addr,
             venue_service_url,
             mock_venue_service,
+            mock_auth,
         }
     }
 }

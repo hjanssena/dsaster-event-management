@@ -22,16 +22,22 @@ src/
 │   └── error.rs     # Manejo de errores centralizado (AppError) que implementa IntoResponse.
 ├── api/             # Capa de Presentación (Controladores Axum).
 │   ├── mod.rs
+│   ├── auth.rs      # Extractor AuthenticatedPartner (header Authorization: Bearer).
 │   └── event_api.rs # Endpoints (Rutas HTTP). Inyecta AppState.
 ├── service/         # Capa de Lógica de Negocio. 
 │   ├── mod.rs
+│   ├── auth_srv.rs  # Resuelve el token a un partner existente.
+│   ├── token_verifier.rs # Verificación del token (mock hasta definir el JWT).
+│   ├── venue_client.rs # Comunicación con VenueManagement.
 │   └── event_srv.rs # Reglas de negocio, validaciones y orquestación. No conoce sobre HTTP.
 ├── repository/      # Capa de Acceso a Datos.
 │   ├── mod.rs
+│   ├── partner_repo.rs # Consulta de partners (id, username, rol).
 │   └── event_repo.rs # Consultas a la base de datos usando SeaORM.
 └── model/           # Entidades y Transferencia de Datos.
     ├── mod.rs
     ├── event.rs     # Entidades de la base de datos.
+    ├── partner.rs   # Partner (venue owner u organizador) y su rol.
     └── dtos.rs      # Data Transfer Objects (Payloads JSON de entrada/salida).
 
 tests/
