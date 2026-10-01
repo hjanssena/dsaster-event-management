@@ -1,7 +1,8 @@
-// configurar funciones de utilidad para los tests,
-// levantar una base de datos en memoria (SQLite) o crear un cliente HTTP simulado.
+use eventManagement_api::migration::{Migrator, MigratorTrait};
+use sea_orm::{DatabaseConnection, DbErr};
 
-pub async fn setup_test_db() {
-    // TODO
+/// Ejecuta las migraciones de SeaORM sobre la base de datos indicada para pruebas de integración
+pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
+    Migrator::up(db, None).await
 }
 

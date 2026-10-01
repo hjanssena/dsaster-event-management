@@ -11,6 +11,7 @@ use tracing_subscriber::FmtSubscriber;
 use eventManagement_api::{
     api,
     config::AppConfig,
+    migration::{Migrator, MigratorTrait},
     repository::{MockPartnerRepository, PartnerRepository, SeaOrmEventRepository, SeaOrmPartnerRepository},
     service::{AuthService, EventService, HttpVenueClient, MockTokenVerifier, MockVenueClient, VenueClient},
     AppState,
@@ -32,7 +33,14 @@ async fn main() {
         .await
         .expect("Error al conectar con la base de datos principal");
 
-    // 3. Inicializar Repositorios y Servicios (Inyección de Dependencias)
+    // 3. Ejecutar migraciones automáticas de SeaORM
+    info!("Ejecutando migraciones automáticas de SeaORM en la base de datos...");
+    Migrator::up(&event_db, None)
+        .await
+        .expect("Error al ejecutar las migraciones de SeaORM");
+    info!("Migraciones de SeaORM completadas con éxito.");
+
+    // 4. Inicializar Repositorios y Servicios (Inyección de Dependencias)
     let repo = Arc::new(SeaOrmEventRepository::new(event_db.clone()));
 
     let venue_client: Arc<dyn VenueClient> = if config.mock_venue_service {

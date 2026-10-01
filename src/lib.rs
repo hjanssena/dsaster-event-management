@@ -6,6 +6,7 @@ use sea_orm::DatabaseConnection;
 pub mod api;
 pub mod config;
 pub mod core;
+pub mod migration;
 pub mod model;
 pub mod openapi;
 pub mod repository;
