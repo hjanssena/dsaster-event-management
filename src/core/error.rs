@@ -47,3 +47,8 @@ impl IntoResponse for AppError {
     }
 }
 
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct ErrorResponseDto {
+    pub error: String,
+}
+
