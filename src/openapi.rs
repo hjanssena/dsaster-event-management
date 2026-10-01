@@ -6,9 +6,12 @@ use utoipa::OpenApi;
         crate::api::health_api::health_check,
         crate::api::event_api::get_event_by_id,
         crate::api::event_api::get_events,
+        crate::api::event_api::create_event,
     ),
     components(
         schemas(
+            crate::model::dtos::CreateEventRequestDto,
+            crate::model::dtos::EventConfirmationDto,
             crate::model::dtos::EventResponseDto,
             crate::model::dtos::EventSummaryDto,
             crate::model::dtos::PaginatedEventSummaryResponse,

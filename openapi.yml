@@ -75,6 +75,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
+    post:
+      tags:
+      - events
+      summary: Registra y crea un nuevo evento en el sistema.
+      operationId: create_event
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequestDto'
+        required: true
+      responses:
+        '201':
+          description: Evento creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventConfirmationDto'
+        '400':
+          description: Datos de entrada inválidos o recinto inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
   /api/v1/events/{id}:
     get:
       tags:
@@ -135,6 +165,50 @@ paths:
                 version: 0.1.0
 components:
   schemas:
+    CreateEventRequestDto:
+      type: object
+      description: Request payload para la creación y registro de eventos
+      required:
+      - name
+      - artist
+      - date
+      - venue_id
+      properties:
+        age_policy:
+          type: string
+          description: Política de edad (por defecto "All ages")
+          nullable: true
+        artist:
+          type: string
+          description: Artista o banda principal
+        date:
+          type: string
+          format: date-time
+          description: Fecha y hora del evento en estándar ISO-8601 (ej. "2026-11-20T21:00:00Z")
+        description:
+          type: string
+          description: Descripción opcional del evento
+          nullable: true
+        event_type:
+          type: string
+          description: Tipo de evento (por defecto "Concert")
+          nullable: true
+        name:
+          type: string
+          description: Nombre del evento / espectáculo
+        organizer_id:
+          type: string
+          format: uuid
+          description: Identificador del organizador (opcional, asigna backstage por defecto)
+          nullable: true
+        terms:
+          type: string
+          description: Términos y condiciones opcionales
+          nullable: true
+        venue_id:
+          type: string
+          format: uuid
+          description: Identificador del recinto (admite venue_id o venueId)
     ErrorResponseDto:
       type: object
       required:
@@ -142,6 +216,39 @@ components:
       properties:
         error:
           type: string
+    EventConfirmationDto:
+      type: object
+      description: Confirmación retornada tras la creación exitosa de un evento (HTTP 201)
+      required:
+      - id
+      - message
+      - name
+      - artist
+      - date
+      - venue_id
+      - status
+      - created_at
+      properties:
+        artist:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        date:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        message:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        venue_id:
+          type: string
+          format: uuid
     EventMediaDto:
       type: object
       required:
