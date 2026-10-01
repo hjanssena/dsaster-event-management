@@ -2,6 +2,7 @@
 name = "eventManagement_api"
 version = "0.1.0"
 edition = "2024"
+default-run = "eventManagement_api"
 
 [dependencies]
 # Framework web y asincronía
