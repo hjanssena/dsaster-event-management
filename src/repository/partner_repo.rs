@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use async_trait::async_trait;
 use sea_orm::{DatabaseConnection, EntityTrait};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 

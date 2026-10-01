@@ -1,11 +1,12 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
-    Json, Router,
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::api::auth::AuthenticatedPartner;
 use crate::core::error::AppError;
 #[allow(unused_imports)]
@@ -14,7 +15,6 @@ use crate::model::dtos::{
     CreateEventRequestDto, EventConfirmationDto, EventPaginationQueryDto, EventResponseDto,
     PaginatedEventSummaryResponse,
 };
-use crate::AppState;
 
 /// Obtiene los detalles completos de un evento específico por su ID.
 #[utoipa::path(

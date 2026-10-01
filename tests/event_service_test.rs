@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use std::sync::Arc;
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
+use std::collections::HashSet;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use eventManagement_api::{
@@ -178,10 +178,20 @@ async fn test_get_events_filter_by_id_found() {
     let venue_id = Uuid::new_v4();
 
     mock_repo
-        .insert(create_sample_event(target_id, "Target Show", "Scheduled", venue_id))
+        .insert(create_sample_event(
+            target_id,
+            "Target Show",
+            "Scheduled",
+            venue_id,
+        ))
         .await;
     mock_repo
-        .insert(create_sample_event(other_id, "Other Show", "Draft", venue_id))
+        .insert(create_sample_event(
+            other_id,
+            "Other Show",
+            "Draft",
+            venue_id,
+        ))
         .await;
 
     let service = EventService::new(mock_repo, venue_client);
@@ -211,7 +221,12 @@ async fn test_get_events_filter_by_id_not_found() {
     let non_existing_id = Uuid::new_v4();
 
     mock_repo
-        .insert(create_sample_event(existing_id, "Show", "Scheduled", Uuid::new_v4()))
+        .insert(create_sample_event(
+            existing_id,
+            "Show",
+            "Scheduled",
+            Uuid::new_v4(),
+        ))
         .await;
 
     let service = EventService::new(mock_repo, venue_client);
@@ -238,13 +253,28 @@ async fn test_get_events_filter_by_status() {
     let venue_id = Uuid::new_v4();
 
     mock_repo
-        .insert(create_sample_event(Uuid::new_v4(), "Show 1", "Draft", venue_id))
+        .insert(create_sample_event(
+            Uuid::new_v4(),
+            "Show 1",
+            "Draft",
+            venue_id,
+        ))
         .await;
     mock_repo
-        .insert(create_sample_event(Uuid::new_v4(), "Show 2", "Scheduled", venue_id))
+        .insert(create_sample_event(
+            Uuid::new_v4(),
+            "Show 2",
+            "Scheduled",
+            venue_id,
+        ))
         .await;
     mock_repo
-        .insert(create_sample_event(Uuid::new_v4(), "Show 3", "Scheduled", venue_id))
+        .insert(create_sample_event(
+            Uuid::new_v4(),
+            "Show 3",
+            "Scheduled",
+            venue_id,
+        ))
         .await;
 
     let service = EventService::new(mock_repo, venue_client);
@@ -305,7 +335,7 @@ async fn test_create_event_success_minimal_fields() {
     assert_eq!(queried.name, "Arctic Monkeys Live");
     assert_eq!(queried.schedules[0].starts_at, future_date);
     assert_eq!(queried.age_policy, "All ages"); // Default aplicado
-    assert_eq!(queried.event_type, "Concert");   // Default aplicado
+    assert_eq!(queried.event_type, "Concert"); // Default aplicado
     assert_eq!(queried.organizer_id, organizer.id); // Atribuido al organizador autenticado
 }
 
@@ -410,7 +440,9 @@ async fn test_create_event_venue_not_found() {
 
     let err = service.create_event(request, &organizer).await.unwrap_err();
     match err {
-        AppError::UnprocessableEntity(msg) => assert!(msg.contains("Venue does not exist or is invalid")),
+        AppError::UnprocessableEntity(msg) => {
+            assert!(msg.contains("Venue does not exist or is invalid"))
+        }
         _ => panic!("Se esperaba UnprocessableEntity, se obtuvo: {:?}", err),
     }
 }
@@ -433,7 +465,10 @@ async fn test_create_event_venue_owner_forbidden() {
         terms: None,
     };
 
-    let err = service.create_event(request, &venue_owner).await.unwrap_err();
+    let err = service
+        .create_event(request, &venue_owner)
+        .await
+        .unwrap_err();
     match err {
         AppError::Forbidden(msg) => assert!(msg.contains("Only organizers")),
         _ => panic!("Se esperaba Forbidden, se obtuvo: {:?}", err),

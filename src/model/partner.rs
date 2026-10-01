@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Rol único de un partner (PA-04.3). El staff no es un rol: usa una credencial de configuración.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize, ToSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize, ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
 #[serde(rename_all = "snake_case")]
 pub enum PartnerRole {

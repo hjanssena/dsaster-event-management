@@ -72,7 +72,6 @@ pub struct CreateEventDto {
     pub artist: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateEventPricingTierDto {
     pub name: String,
@@ -165,4 +164,3 @@ pub struct PaginatedResponseDto<T> {
     pub total_items: u64,
     pub total_pages: u64,
 }
-

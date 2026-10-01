@@ -4,9 +4,9 @@ use axum::{
     http::{header::AUTHORIZATION, request::Parts},
 };
 
+use crate::AppState;
 use crate::core::error::AppError;
 use crate::model::partner;
-use crate::AppState;
 
 /// Extractor de Axum: partner autenticado a partir del header `Authorization: Bearer <token>`.
 /// Rechaza con 401 si el token falta, es inválido o el partner no existe.
@@ -16,7 +16,10 @@ pub struct AuthenticatedPartner(pub partner::Model);
 impl FromRequestParts<AppState> for AuthenticatedPartner {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let token = bearer_token(parts)
             .ok_or_else(|| AppError::Unauthorized("Missing bearer token".to_string()))?;
 

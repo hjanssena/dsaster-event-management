@@ -7,6 +7,29 @@ on:
     branches: [main, testing]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: "checkout code"
+        uses: actions/checkout@v4
+
+      - name: "setup rust"
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: "cache dependencies"
+        uses: Swatinem/rust-cache@v2
+
+      - name: "check formatting"
+        run: cargo fmt --all -- --check
+
+      - name: "run clippy"
+        run: cargo lint
+
   test:
     runs-on: ubuntu-latest
     permissions:

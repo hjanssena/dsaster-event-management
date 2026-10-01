@@ -51,9 +51,7 @@ impl MigrationTrait for Migration {
 
         let delete = Query::delete()
             .from_table(Partners::Table)
-            .and_where(
-                Expr::col(Partners::Id).is_in([organizer_uuid, venue_owner_uuid]),
-            )
+            .and_where(Expr::col(Partners::Id).is_in([organizer_uuid, venue_owner_uuid]))
             .to_owned();
 
         manager.exec_stmt(delete).await?;

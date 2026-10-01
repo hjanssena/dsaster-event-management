@@ -1,20 +1,20 @@
-use std::sync::Arc;
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{Router, routing::get};
 use sea_orm::Database;
+use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 use eventManagement_api::{
-    api,
+    AppState, api,
     config::AppConfig,
     migration::{Migrator, MigratorTrait},
-    repository::{MockPartnerRepository, PartnerRepository, SeaOrmEventRepository, SeaOrmPartnerRepository},
-    service::{AuthService, EventService, HttpVenueClient, MockTokenVerifier, MockVenueClient, VenueClient},
-    AppState,
+    repository::{
+        MockPartnerRepository, PartnerRepository, SeaOrmEventRepository, SeaOrmPartnerRepository,
+    },
+    service::{
+        AuthService, EventService, HttpVenueClient, MockTokenVerifier, MockVenueClient, VenueClient,
+    },
 };
 
 #[tokio::main]
@@ -47,7 +47,10 @@ async fn main() {
         info!("Iniciando VenueClient en modo MOCK (simulado en memoria)");
         Arc::new(MockVenueClient::new_permissive())
     } else {
-        info!("Iniciando HttpVenueClient conectado a {}", config.venue_service_url);
+        info!(
+            "Iniciando HttpVenueClient conectado a {}",
+            config.venue_service_url
+        );
         Arc::new(HttpVenueClient::new(config.venue_service_url.clone()))
     };
 
@@ -63,7 +66,10 @@ async fn main() {
 
     // Único verificador disponible hasta que el servicio de autenticación defina el JWT
     info!("Iniciando TokenVerifier en modo MOCK (tokens `mock:<uuid>`)");
-    let auth_service = Arc::new(AuthService::new(Arc::new(MockTokenVerifier::new()), partner_repo));
+    let auth_service = Arc::new(AuthService::new(
+        Arc::new(MockTokenVerifier::new()),
+        partner_repo,
+    ));
 
     let state = AppState {
         db: event_db,
@@ -86,7 +92,9 @@ async fn main() {
         .with_state(state);
 
     info!("EventAPI escuchando peticiones en {}", config.server_addr);
-    let listener = tokio::net::TcpListener::bind(&config.server_addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&config.server_addr)
+        .await
+        .unwrap();
 
     axum::serve(listener, app).await.unwrap();
 }

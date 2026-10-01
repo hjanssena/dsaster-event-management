@@ -1,25 +1,26 @@
-use std::collections::HashSet;
-use std::sync::Arc;
 use axum::{
-    body::{to_bytes, Body},
-    http::{header, Request, StatusCode},
-    routing::get,
     Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode, header},
+    routing::get,
 };
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
+use std::collections::HashSet;
+use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 use eventManagement_api::{
-    api,
+    AppState, api,
     model::dtos::{
         EventConfirmationDto, EventMediaDto, EventPricingTierDto, EventResponseDto, EventSaleDto,
         EventScheduleDto, PaginatedEventSummaryResponse,
     },
-    repository::{MockEventRepository, MockPartnerRepository, DEV_ORGANIZER_ID, DEV_VENUE_OWNER_ID},
+    repository::{
+        DEV_ORGANIZER_ID, DEV_VENUE_OWNER_ID, MockEventRepository, MockPartnerRepository,
+    },
     service::{AuthService, EventService, MockTokenVerifier, MockVenueClient, VenueClient},
-    AppState,
 };
 
 fn create_test_app(
@@ -124,7 +125,9 @@ async fn test_http_get_event_by_id_200_ok() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
     let event_id = Uuid::new_v4();
-    mock_repo.insert(create_sample_event(event_id, "Festival Primavera")).await;
+    mock_repo
+        .insert(create_sample_event(event_id, "Festival Primavera"))
+        .await;
 
     let app = create_test_app(mock_repo, venue_client);
 
@@ -167,7 +170,12 @@ async fn test_http_get_event_by_id_404_not_found() {
 
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["error"].as_str().unwrap().contains(&non_existent.to_string()));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains(&non_existent.to_string())
+    );
 }
 
 #[tokio::test]
@@ -227,7 +235,9 @@ async fn test_http_get_events_paginated_200_ok() {
 async fn test_http_get_events_alias_route() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    mock_repo.insert(create_sample_event(Uuid::new_v4(), "Show")).await;
+    mock_repo
+        .insert(create_sample_event(Uuid::new_v4(), "Show"))
+        .await;
 
     let app = create_test_app(mock_repo, venue_client);
 
@@ -354,7 +364,12 @@ async fn test_http_post_event_past_date_400() {
 
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["error"].as_str().unwrap().contains("valid future calendar date"));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("valid future calendar date")
+    );
 }
 
 #[tokio::test]
@@ -394,7 +409,12 @@ async fn test_http_post_event_venue_not_found_422() {
 
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["error"].as_str().unwrap().contains("Venue does not exist or is invalid"));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("Venue does not exist or is invalid")
+    );
 }
 
 // ==================== Tests de Autenticación y Rol (POST /events) ====================
@@ -410,7 +430,11 @@ async fn test_http_post_event_without_token_401() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    assert!(error_message(response).await.contains("Missing bearer token"));
+    assert!(
+        error_message(response)
+            .await
+            .contains("Missing bearer token")
+    );
 }
 
 #[tokio::test]
@@ -427,7 +451,11 @@ async fn test_http_post_event_non_bearer_scheme_401() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    assert!(error_message(response).await.contains("Missing bearer token"));
+    assert!(
+        error_message(response)
+            .await
+            .contains("Missing bearer token")
+    );
 }
 
 #[tokio::test]
@@ -453,7 +481,10 @@ async fn test_http_post_event_unknown_partner_401() {
     let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
 
     let response = app
-        .oneshot(post_event_request(&valid_event_payload(), Some(bearer(Uuid::new_v4()))))
+        .oneshot(post_event_request(
+            &valid_event_payload(),
+            Some(bearer(Uuid::new_v4())),
+        ))
         .await
         .unwrap();
 
@@ -467,7 +498,10 @@ async fn test_http_post_event_venue_owner_403() {
     let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
 
     let response = app
-        .oneshot(post_event_request(&valid_event_payload(), Some(bearer(DEV_VENUE_OWNER_ID))))
+        .oneshot(post_event_request(
+            &valid_event_payload(),
+            Some(bearer(DEV_VENUE_OWNER_ID)),
+        ))
         .await
         .unwrap();
 
@@ -478,7 +512,10 @@ async fn test_http_post_event_venue_owner_403() {
 #[tokio::test]
 async fn test_http_post_event_ignores_body_organizer_id() {
     let mock_repo = Arc::new(MockEventRepository::new());
-    let app = create_test_app(mock_repo.clone(), Arc::new(MockVenueClient::new_permissive()));
+    let app = create_test_app(
+        mock_repo.clone(),
+        Arc::new(MockVenueClient::new_permissive()),
+    );
 
     // Un organizer_id enviado en el body nunca se usa para atribuir el evento (VE-06)
     let mut payload = valid_event_payload();
@@ -496,6 +533,10 @@ async fn test_http_post_event_ignores_body_organizer_id() {
     let confirmation: EventConfirmationDto = serde_json::from_slice(&body).unwrap();
 
     use eventManagement_api::repository::EventRepository;
-    let stored = mock_repo.find_by_id(confirmation.id).await.unwrap().unwrap();
+    let stored = mock_repo
+        .find_by_id(confirmation.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(stored.organizer_id, DEV_ORGANIZER_ID);
 }

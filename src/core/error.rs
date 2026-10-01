@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use thiserror::Error;
@@ -38,11 +38,17 @@ impl IntoResponse for AppError {
             AppError::DatabaseError(err) => {
                 error!("Database error occurred: {:?}", err);
                 // No exponemos el error real de la BD al cliente por seguridad
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             AppError::InternalServerError(msg) => {
                 error!("Internal server error: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
@@ -63,4 +69,3 @@ impl IntoResponse for AppError {
 pub struct ErrorResponseDto {
     pub error: String,
 }
-

@@ -41,6 +41,33 @@ Si compilas todo dentro de Docker en cada cambio, se desperdicia mucho tiempo.
 
 ---
 
+## Linting y formato de código
+
+Antes de abrir un Pull Request, ejecuta las mismas verificaciones de formato y linting que usa CI:
+
+```bash
+npm run lint
+```
+
+Este comando ejecuta `cargo fmt --all -- --check` y `cargo lint`. El alias
+`cargo lint` ejecuta Clippy en todos los targets (incluyendo binarios y tests)
+con `--locked` y trata todas las advertencias como errores.
+
+También puedes ejecutar las verificaciones directamente con Cargo, sin Node.js:
+
+```bash
+cargo fmt --all -- --check
+cargo lint
+```
+
+Para corregir el formato automáticamente, usa `cargo fmt --all` o `npm run format`.
+Si faltan las herramientas, instálalas con `rustup component add rustfmt clippy`.
+
+El workflow `validation` ejecuta estas verificaciones en el job `lint`, además
+del job de tests, en pushes y Pull Requests hacia `main` y `testing`.
+
+---
+
 ## Autenticación Simulada (MOCK_AUTH)
 
 Mientras el servicio de autenticación define el JWT, los endpoints de registro (`POST /events`) usan tokens simulados con formato `mock:<uuid-del-partner>`:
