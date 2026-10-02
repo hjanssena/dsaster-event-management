@@ -9,6 +9,7 @@ use eventManagement_api::{
     AppState, api,
     config::AppConfig,
     migration::{Migrator, MigratorTrait},
+    openapi,
     repository::{
         MockPartnerRepository, PartnerRepository, SeaOrmEventRepository, SeaOrmPartnerRepository,
     },
@@ -84,6 +85,7 @@ async fn main() {
 
     // 5. Configurar el Router de Axum
     let app = Router::new()
+        .merge(openapi::swagger_ui())
         .route("/health", get(api::health_api::health_check))
         .nest("/api/v1/events", api::event_api::routes())
         .nest("/events", api::event_api::routes()) // Alias compatible
