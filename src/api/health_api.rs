@@ -2,9 +2,11 @@ use crate::AppState;
 use axum::{Json, extract::State};
 use serde_json::{Value, json};
 
-/// Endpoint de Health Check
-/// Se utiliza para monitoreo (ej. Kubernetes, Docker Healthcheck, balanceadores de carga).
-/// Devuelve un HTTP 200 OK con un JSON confirmando que el servicio está vivo.
+/// Check whether the API is responding.
+///
+/// No authentication is required. This endpoint checks HTTP availability; it does not test database connectivity.
+/// Response fields: `status` is `ok`, `message` describes service availability,
+/// and `version` identifies the API version.
 
 #[utoipa::path(
     get,

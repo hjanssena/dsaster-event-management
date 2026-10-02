@@ -67,5 +67,6 @@ impl IntoResponse for AppError {
 
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub struct ErrorResponseDto {
+    /// Message explaining why the request failed. Use the HTTP status to determine the error category.
     pub error: String,
 }

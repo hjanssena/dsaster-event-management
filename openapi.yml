@@ -1,7 +1,68 @@
 openapi: 3.0.3
 info:
-  title: eventManagement_api
-  description: ''
+  title: Event Management API
+  description: |
+    Browse events and create events for an authenticated organizer.
+
+    ### Try a request
+
+    1. Expand an endpoint and select **Try it out**.
+    2. Fill in its parameters or edit the JSON request body.
+    3. Select **Execute**. Swagger sends a real request to this service.
+    4. Read the response status and body below the form. A successful POST saves a new event.
+
+    ### Authenticate to create an event
+
+    GET requests and the health check are public. **POST /api/v1/events** requires an organizer token.
+
+    1. Select **Authorize** at the top of this page.
+    2. In the `bearer_auth` value, enter your token **without the `Bearer ` prefix**.
+    3. Select **Authorize**, then **Close**. Swagger adds `Authorization: Bearer <token>` to protected requests.
+    4. To switch accounts, open **Authorize**, select **Logout**, and enter another token.
+
+    **Current development authentication:** this service accepts `mock:<partner UUID>` tokens. With the default `MOCK_AUTH=true`, use this organizer token:
+
+    `mock:11111111-1111-1111-1111-111111111111`
+
+    To try a role rejection (HTTP 403), use the venue owner token:
+
+    `mock:22222222-2222-2222-2222-222222222222`
+
+    These are development tokens without signatures or expiration. There is no login endpoint in this service. When `MOCK_AUTH=false`, the verifier still expects a mock token, but the partner must exist in the database with the organizer role.
+
+    ### Create an event
+
+    Required fields: `name`, `artist`, `date`, and `venue_id`. Use a future date with a timezone. The server gets the organizer from your token and sets the initial status to `Scheduled`.
+
+    ```json
+    {
+      "name": "Summer music festival",
+      "artist": "The Example Band",
+      "date": "2099-07-15T20:00:00Z",
+      "venue_id": "33333333-3333-3333-3333-333333333333",
+      "description": "An evening of live music",
+      "age_policy": "All ages",
+      "event_type": "Concert",
+      "terms": "Tickets are required for entry."
+    }
+    ```
+
+    Replace the example values with your event details. `venueId` is also accepted for `venue_id`. With the default `MOCK_VENUE_SERVICE=true`, any nonzero venue UUID is accepted. When it is false, use a venue registered in Venue Management.
+
+    ### Understand the fields
+
+    Select **Schema** beside **Example Value** to read each request or response field description. You can also expand a model under **Schemas** at the bottom of this page. Fields marked as required must be included. Optional request fields can be omitted or set to `null`. Dates use RFC 3339 with a timezone, such as `2099-07-15T20:00:00Z`; identifiers use UUIDs.
+
+    ### Understand errors
+
+    - **400:** check that the name and artist are nonempty and the event date is in the future. Malformed path or query values can also return 400.
+    - **401:** authorize with a token in the expected format for an existing partner.
+    - **403:** use a partner with the organizer role.
+    - **404:** check that the requested event ID exists.
+    - **422:** use a valid venue ID accepted by Venue Management.
+    - **500:** the service could not complete the request; check the service logs.
+
+    Application errors return an `error` message. Request parsing failures can use a different response format.
   license:
     name: ''
   version: 0.1.0
@@ -10,12 +71,13 @@ paths:
     get:
       tags:
       - events
-      summary: Obtiene una lista paginada de eventos con filtros opcionales (o un evento específico vía ?id=...).
+      summary: List events with pagination and optional filters.
+      description: No authentication is required. Leave filters blank to list all events. Supplied filters are combined.
       operationId: get_events
       parameters:
       - name: page
         in: query
-        description: Número de página (comienza en 1, por defecto 1)
+        description: Page number, starting at 1. Defaults to 1; a value of 0 is treated as 1.
         required: false
         schema:
           type: integer
@@ -24,7 +86,7 @@ paths:
           minimum: 0
       - name: per_page
         in: query
-        description: Cantidad de elementos por página (por defecto 10, máx 100)
+        description: Events per page. Defaults to 10; values are clamped to the range 1 to 100.
         required: false
         schema:
           type: integer
@@ -33,14 +95,14 @@ paths:
           minimum: 0
       - name: status
         in: query
-        description: Filtrar por estado del evento (Draft, Scheduled, On Sale, Sold Out, Completed, Cancelled)
+        description: Filter by exact event status, such as Scheduled, Draft, On Sale, Sold Out, Completed, or Cancelled.
         required: false
         schema:
           type: string
           nullable: true
       - name: venue_id
         in: query
-        description: Filtrar por identificador de recinto
+        description: Return only events hosted at this venue UUID.
         required: false
         schema:
           type: string
@@ -48,7 +110,7 @@ paths:
           nullable: true
       - name: organizer_id
         in: query
-        description: Filtrar por identificador de organizador
+        description: Return only events owned by this organizer UUID.
         required: false
         schema:
           type: string
@@ -56,7 +118,7 @@ paths:
           nullable: true
       - name: id
         in: query
-        description: Filtrar por un identificador de evento específico
+        description: Return only the event with this UUID, still inside a paginated response.
         required: false
         schema:
           type: string
@@ -78,7 +140,10 @@ paths:
     post:
       tags:
       - events
-      summary: Registra y crea un nuevo evento en el sistema a nombre del organizador autenticado.
+      summary: Create an event for the authenticated organizer.
+      description: |-
+        Use Authorize with an organizer token, then Try it out. The request requires name,
+        artist, a future date, and venue_id. The organizer and initial Scheduled status are set by the server.
       operationId: create_event
       requestBody:
         content:
@@ -94,7 +159,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventConfirmationDto'
         '400':
-          description: Datos de entrada inválidos o recinto inexistente
+          description: Nombre o artista vacío, o fecha que no está en el futuro
           content:
             application/json:
               schema:
@@ -111,6 +176,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
+        '422':
+          description: Recinto inexistente o inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
         '500':
           description: Error interno del servidor
           content:
@@ -123,7 +194,8 @@ paths:
     get:
       tags:
       - events
-      summary: Obtiene los detalles completos de un evento específico por su ID.
+      summary: Get the complete event detail.
+      description: No authentication is required. Copy an event ID from the list or creation response.
       operationId: get_event_by_id
       parameters:
       - name: id
@@ -162,10 +234,11 @@ paths:
     get:
       tags:
       - crate::api::health_api
-      summary: Endpoint de Health Check
+      summary: Check whether the API is responding.
       description: |-
-        Se utiliza para monitoreo (ej. Kubernetes, Docker Healthcheck, balanceadores de carga).
-        Devuelve un HTTP 200 OK con un JSON confirmando que el servicio está vivo.
+        No authentication is required. This endpoint checks HTTP availability; it does not test database connectivity.
+        Response fields: `status` is `ok`, `message` describes service availability,
+        and `version` identifies the API version.
       operationId: health_check
       responses:
         '200':
@@ -190,34 +263,34 @@ components:
       properties:
         age_policy:
           type: string
-          description: Política de edad (por defecto "All ages")
+          description: Optional admission age policy, such as All ages or 18+. Defaults to All ages when omitted or null.
           nullable: true
         artist:
           type: string
-          description: Artista
+          description: Required performing artist or group. Must contain at least one non-whitespace character.
         date:
           type: string
           format: date-time
-          description: Fecha y hora del evento
+          description: Required event start date and time. Use RFC 3339 with a timezone, such as 2099-07-15T20:00:00Z. Must be in the future when submitted.
         description:
           type: string
-          description: Descripción opcional del evento
+          description: Optional event description. Omit or send null when not needed.
           nullable: true
         event_type:
           type: string
-          description: Tipo de evento (por defecto "Concert")
+          description: Optional event category, such as Concert or Festival. Defaults to Concert when omitted or null.
           nullable: true
         name:
           type: string
-          description: Nombre del evento
+          description: Required event name. Must contain at least one non-whitespace character.
         terms:
           type: string
-          description: Términos y condiciones opcionales
+          description: Optional attendance terms and conditions. Omit or send null when not needed.
           nullable: true
         venue_id:
           type: string
           format: uuid
-          description: Identificador del recinto
+          description: Required UUID of the hosting venue. The JSON key venueId is also accepted. The default mock venue service accepts any nonzero UUID; the real venue service must confirm the venue exists.
     ErrorResponseDto:
       type: object
       required:
@@ -225,6 +298,7 @@ components:
       properties:
         error:
           type: string
+          description: Message explaining why the request failed. Use the HTTP status to determine the error category.
     EventConfirmationDto:
       type: object
       description: Confirmación retornada tras la creación exitosa de un evento (HTTP 201)
@@ -240,24 +314,32 @@ components:
       properties:
         artist:
           type: string
+          description: Performing artist or group supplied in the creation request.
         created_at:
           type: string
           format: date-time
+          description: UTC timestamp when the record was created, in RFC 3339 format.
         date:
           type: string
           format: date-time
+          description: Start time of the initial event schedule, normalized to UTC.
         id:
           type: string
           format: uuid
+          description: UUID assigned to the new event. Use it to fetch the event detail.
         message:
           type: string
+          description: Confirmation message describing the result of the request.
         name:
           type: string
+          description: Display name of the event.
         status:
           type: string
+          description: 'Initial status assigned by the server: Scheduled.'
         venue_id:
           type: string
           format: uuid
+          description: UUID of the venue hosting the event.
     EventMediaDto:
       type: object
       required:
@@ -268,10 +350,13 @@ components:
         id:
           type: string
           format: uuid
+          description: UUID identifying this media resource.
         media_type:
           type: string
+          description: Type of media, such as poster.
         url:
           type: string
+          description: URL of the media resource, such as a poster image.
     EventPricingTierDto:
       type: object
       required:
@@ -282,16 +367,21 @@ components:
       properties:
         currency:
           type: string
+          description: Currency code for the price, such as USD or MXN.
         description:
           type: string
+          description: Optional description of this ticket category. Null when none is recorded.
           nullable: true
         id:
           type: string
           format: uuid
+          description: UUID identifying this ticket pricing tier.
         name:
           type: string
+          description: Pricing category name, such as General, VIP, or Balcony.
         price:
           type: string
+          description: Ticket price for this tier as a decimal amount in the specified currency.
     EventResponseDto:
       type: object
       description: Detalle completo de un evento con todas sus colecciones anidadas
@@ -312,52 +402,68 @@ components:
       properties:
         age_policy:
           type: string
+          description: Admission age policy, such as All ages or 18+.
         artist:
           type: string
+          description: Name of the performing artist or group. Null when no artist is recorded.
           nullable: true
         created_at:
           type: string
           format: date-time
+          description: UTC timestamp when the record was created, in RFC 3339 format.
         description:
           type: string
+          description: Optional description. Null when no description is recorded.
           nullable: true
         event_type:
           type: string
+          description: Event category, such as Concert.
         id:
           type: string
           format: uuid
+          description: Unique UUID identifying this record.
         media:
           type: array
           items:
             $ref: '#/components/schemas/EventMediaDto'
+          description: Media resources associated with this event. An empty array means no media are recorded.
         name:
           type: string
+          description: Display name of the event.
         organizer_id:
           type: string
           format: uuid
+          description: UUID of the organizer who owns the event. Event creation derives this value from the authenticated partner.
         pricing_tiers:
           type: array
           items:
             $ref: '#/components/schemas/EventPricingTierDto'
+          description: Ticket pricing categories for this event. An empty array means no pricing tiers are recorded.
         sales:
           type: array
           items:
             $ref: '#/components/schemas/EventSaleDto'
+          description: Ticket sale windows, separate from performance schedules. An empty array means no sale windows are recorded.
         schedules:
           type: array
           items:
             $ref: '#/components/schemas/EventScheduleDto'
+          description: Event performance schedules. An empty array means no schedules are recorded.
         status:
           type: string
+          description: Current event status. New events start as Scheduled.
         terms:
           type: string
+          description: Optional terms and conditions for attending the event. Null when none are recorded.
           nullable: true
         updated_at:
           type: string
           format: date-time
+          description: UTC timestamp when the record was last updated, in RFC 3339 format.
         venue_id:
           type: string
           format: uuid
+          description: UUID of the venue hosting the event.
     EventSaleDto:
       type: object
       required:
@@ -367,13 +473,16 @@ components:
         ends_at:
           type: string
           format: date-time
+          description: Optional time when ticket sales close. Null when no closing time is recorded.
           nullable: true
         id:
           type: string
           format: uuid
+          description: UUID identifying this ticket sale window.
         starts_at:
           type: string
           format: date-time
+          description: When ticket sales open, in RFC 3339 format.
     EventScheduleDto:
       type: object
       required:
@@ -383,13 +492,16 @@ components:
         ends_at:
           type: string
           format: date-time
+          description: Optional end date and time in RFC 3339 format. Null when no end time is recorded.
           nullable: true
         id:
           type: string
           format: uuid
+          description: UUID identifying this performance schedule.
         starts_at:
           type: string
           format: date-time
+          description: When the event performance starts, in RFC 3339 format.
     EventSummaryDto:
       type: object
       description: Proyección ligera y optimizada para listados paginados
@@ -404,29 +516,38 @@ components:
       properties:
         artist:
           type: string
+          description: Name of the performing artist or group. Null when no artist is recorded.
           nullable: true
         event_type:
           type: string
+          description: Event category, such as Concert.
         id:
           type: string
           format: uuid
+          description: Unique UUID identifying this record.
         min_price:
           type: string
+          description: Lowest price among the event pricing tiers. Null when there are no pricing tiers; currency is available in the event detail.
           nullable: true
         name:
           type: string
+          description: Display name of the event.
         organizer_id:
           type: string
           format: uuid
+          description: UUID of the organizer who owns the event. Event creation derives this value from the authenticated partner.
         schedules:
           type: array
           items:
             $ref: '#/components/schemas/EventScheduleDto'
+          description: Event performance schedules. An empty array means no schedules are recorded.
         status:
           type: string
+          description: Current event status. New events start as Scheduled.
         venue_id:
           type: string
           format: uuid
+          description: UUID of the venue hosting the event.
     PaginatedEventSummaryResponse:
       type: object
       description: Contenedor genérico para respuestas paginadas
@@ -441,21 +562,26 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EventSummaryDto'
+          description: Events matching the filters on the requested page. Empty when no events match or the page is beyond the last page.
         page:
           type: integer
           format: int64
+          description: Effective page number, starting at 1.
           minimum: 0
         per_page:
           type: integer
           format: int64
+          description: Effective maximum number of events per page, between 1 and 100.
           minimum: 0
         total_items:
           type: integer
           format: int64
+          description: Total number of events matching the filters across all pages.
           minimum: 0
         total_pages:
           type: integer
           format: int64
+          description: Number of pages for the selected page size. Zero when no events match.
           minimum: 0
   securitySchemes:
     bearer_auth:

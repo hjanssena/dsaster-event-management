@@ -16,7 +16,9 @@ use crate::model::dtos::{
     PaginatedEventSummaryResponse,
 };
 
-/// Obtiene los detalles completos de un evento específico por su ID.
+/// Get the complete event detail.
+///
+/// No authentication is required. Copy an event ID from the list or creation response.
 #[utoipa::path(
     get,
     path = "/api/v1/events/{id}",
@@ -39,7 +41,9 @@ pub async fn get_event_by_id(
     Ok(Json(event))
 }
 
-/// Obtiene una lista paginada de eventos con filtros opcionales (o un evento específico vía ?id=...).
+/// List events with pagination and optional filters.
+///
+/// No authentication is required. Leave filters blank to list all events. Supplied filters are combined.
 #[utoipa::path(
     get,
     path = "/api/v1/events",
@@ -60,16 +64,20 @@ pub async fn get_events(
     Ok(Json(result))
 }
 
-/// Registra y crea un nuevo evento en el sistema a nombre del organizador autenticado.
+/// Create an event for the authenticated organizer.
+///
+/// Use Authorize with an organizer token, then Try it out. The request requires name,
+/// artist, a future date, and venue_id. The organizer and initial Scheduled status are set by the server.
 #[utoipa::path(
     post,
     path = "/api/v1/events",
     request_body = CreateEventRequestDto,
     responses(
         (status = 201, description = "Evento creado exitosamente", body = EventConfirmationDto),
-        (status = 400, description = "Datos de entrada inválidos o recinto inexistente", body = ErrorResponseDto),
+        (status = 400, description = "Nombre o artista vacío, o fecha que no está en el futuro", body = ErrorResponseDto),
         (status = 401, description = "Token ausente o inválido, o partner inexistente", body = ErrorResponseDto),
         (status = 403, description = "El partner autenticado no es organizador", body = ErrorResponseDto),
+        (status = 422, description = "Recinto inexistente o inválido", body = ErrorResponseDto),
         (status = 500, description = "Error interno del servidor", body = ErrorResponseDto)
     ),
     security(
