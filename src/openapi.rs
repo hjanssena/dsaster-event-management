@@ -1,5 +1,11 @@
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::{Modify, OpenApi};
+use utoipa_swagger_ui::SwaggerUi;
+
+/// Serves Swagger UI and the same generated specification used by generate_openapi.
+pub fn swagger_ui() -> SwaggerUi {
+    SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi())
+}
 
 #[derive(OpenApi)]
 #[openapi(

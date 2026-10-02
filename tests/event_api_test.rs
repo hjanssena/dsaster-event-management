@@ -17,6 +17,7 @@ use eventManagement_api::{
         EventConfirmationDto, EventMediaDto, EventPricingTierDto, EventResponseDto, EventSaleDto,
         EventScheduleDto, PaginatedEventSummaryResponse,
     },
+    openapi,
     repository::{
         DEV_ORGANIZER_ID, DEV_VENUE_OWNER_ID, MockEventRepository, MockPartnerRepository,
     },
@@ -41,6 +42,7 @@ fn create_test_app(
     };
 
     Router::new()
+        .merge(openapi::swagger_ui())
         .route("/health", get(api::health_api::health_check))
         .nest("/api/v1/events", api::event_api::routes())
         .nest("/events", api::event_api::routes())
@@ -49,6 +51,70 @@ fn create_test_app(
 
 fn bearer(partner_id: Uuid) -> String {
     format!("Bearer {}", MockTokenVerifier::token_for(partner_id))
+}
+
+#[tokio::test]
+async fn test_http_openapi_spec_is_public() {
+    let app = create_test_app(
+        Arc::new(MockEventRepository::new()),
+        Arc::new(MockVenueClient::new_permissive()),
+    );
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api-docs/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let spec: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(spec["paths"]["/health"]["get"].is_object());
+    assert!(spec["paths"]["/api/v1/events"]["get"].is_object());
+    assert!(spec["paths"]["/api/v1/events/{id}"]["get"].is_object());
+    assert_eq!(
+        spec["paths"]["/api/v1/events"]["post"]["security"][0]["bearer_auth"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        spec["components"]["securitySchemes"]["bearer_auth"]["scheme"],
+        "bearer"
+    );
+}
+
+#[tokio::test]
+async fn test_http_swagger_ui_and_assets_are_public() {
+    let app = create_test_app(
+        Arc::new(MockEventRepository::new()),
+        Arc::new(MockVenueClient::new_permissive()),
+    );
+    for (path, expected_content) in [
+        ("/swagger-ui/", "Swagger UI"),
+        (
+            "/swagger-ui/swagger-initializer.js",
+            "/api-docs/openapi.json",
+        ),
+        ("/swagger-ui/swagger-ui.css", ".swagger-ui"),
+        ("/swagger-ui/swagger-ui-bundle.js", "SwaggerUIBundle"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(
+            String::from_utf8(body.to_vec())
+                .unwrap()
+                .contains(expected_content),
+            "{path}"
+        );
+    }
 }
 
 fn post_event_request(payload: &serde_json::Value, authorization: Option<String>) -> Request<Body> {
