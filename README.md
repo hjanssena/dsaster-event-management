@@ -58,6 +58,23 @@ docker compose up -d
 
 ---
 
+## API Documentation
+
+With the service running (default port `3000`):
+
+- **Swagger UI:** http://localhost:3000/swagger-ui/
+- **OpenAPI JSON:** http://localhost:3000/api-docs/openapi.json
+
+Both endpoints are public. Swagger UI supports trying API requests and supplying a bearer token through **Authorize** for event creation.
+
+The served specification is generated from the Utoipa annotations at startup. To export the same specification as `openapi.yml`, run:
+
+```sh
+cargo run --bin generate_openapi
+```
+
+---
+
 ## Team: Aura Team
 
 This microservice is developed and maintained by the **Aura Team**:
