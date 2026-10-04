@@ -54,7 +54,7 @@ docker compose up -d
 ### 5. Verify the API
 - **Health Check:** `curl http://localhost:3000/health`
 - **Swagger UI (Interactive Docs):** [http://localhost:3000/swagger-ui](http://localhost:3000/swagger-ui)
-- **OpenAPI JSON Spec:** [http://localhost:3000/api-doc/openapi.json](http://localhost:3000/api-doc/openapi.json)
+- **OpenAPI JSON Spec:** [http://localhost:3000/api-docs/openapi.json](http://localhost:3000/api-docs/openapi.json)
 
 ---
 
