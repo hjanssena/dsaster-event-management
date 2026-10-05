@@ -1,0 +1,31 @@
+schema: spec-driven
+
+context: |
+  Language: English
+  All artifacts must be written in English.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  Project conventions (stack, layers, commands, commits, branches) are in AGENTS.md
+  at the repository root. Read it before writing any artifact and follow it.
+
+rules:
+  proposal:
+    - Name the ticket ID (e.g. VE05T1) in the proposal title
+    - Name any new crate and say why it is needed
+  specs:
+    - Every scenario must map to at least one test
+  tasks:
+    - Each task is one commit in the format type(TICKET) subject
+    - Endpoint or DTO changes include a task to update utoipa annotations and regenerate openapi.yml
+    - The last task runs cargo fmt --all -- --check, cargo lint and cargo test
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
