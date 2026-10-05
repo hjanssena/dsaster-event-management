@@ -75,6 +75,23 @@ cargo run --bin generate_openapi
 
 ---
 
+## Working with AI agents (OpenSpec)
+
+We use [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development: no code before a spec you have reviewed. Agent conventions are in [AGENTS.md](AGENTS.md).
+
+Install the CLI once: `npm install -g @fission-ai/openspec@latest`
+
+Per ticket, on its branch:
+
+1. `/opsx:propose "VE05T1: <ticket title>"` creates `openspec/changes/<change>/` (proposal, delta specs, tasks). Review it before continuing.
+2. `/opsx:apply` implements the tasks, one commit each.
+3. Open the PR with the change folder included.
+4. After merge, `/opsx:archive` merges the deltas into `openspec/specs/`.
+
+Agents other than Claude Code use the matching skills in `.agents/skills/` (e.g. `/openspec-propose`).
+
+---
+
 ## Team: Aura Team
 
 This microservice is developed and maintained by the **Aura Team**:
