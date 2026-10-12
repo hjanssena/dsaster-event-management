@@ -75,6 +75,40 @@ cargo run --bin generate_openapi
 
 ---
 
+## Publishing a release
+
+From an up-to-date, clean `main` branch, run `scripts/bump.sh` to select and
+confirm the next version. The script checks CI and runs tests before pushing
+the tag. It also supports `--major`, `--minor`, `--patch`, `--alpha`, and `--beta`.
+
+Pushing a version tag matching `v*.*.*` starts `.github/workflows/release.yml`,
+including when the tag is pushed manually. Branch pushes and pull requests do
+not publish images. The workflow builds the tagged source before connecting
+to Tailscale, logs in to the private registry, and publishes:
+
+`gateway.tail9a6ddb.ts.net:5000/aura-event-management`
+
+| Git tag | Image tags |
+| --- | --- |
+| `v1.2.3` | `1.2.3`, `1.2`, `1`, `latest` |
+| `v0.2.3` | `0.2.3`, `0.2`, `latest` |
+| `v1.2.3-alpha` | `1.2.3-alpha` |
+| `v1.2.3-beta` | `1.2.3-beta` |
+
+The workflow requires granted tailnet access for the repository's OIDC identity
+and these repository Actions secrets (already configured for this repository):
+`REGISTRY_USER`, `REGISTRY_PASS`, `TS_OAUTH_CLIENT_ID`, and `TS_OAUTH_AUDIENCE`.
+The team lead requests access through the registry access ticket. The registry
+uses HTTP inside the encrypted tailnet; the workflow configures Docker for it.
+
+After successful image publication, the workflow creates a GitHub Release with
+the generated `openapi.yml` attached. Alpha/beta tags create prereleases and do
+not update stable image aliases. If image publication fails, the GitHub Release
+job is skipped. Mutable aliases follow publication order, so publishing an older
+stable version can move `latest` and its major/minor aliases back to that version.
+
+---
+
 ## Working with AI agents (OpenSpec)
 
 We use [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development: no code before a spec you have reviewed. Agent conventions are in [AGENTS.md](AGENTS.md).
