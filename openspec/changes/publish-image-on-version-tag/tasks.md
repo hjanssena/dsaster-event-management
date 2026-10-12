@@ -6,4 +6,4 @@
 
 ## 2. Integration validation
 
-- [ ] 2.1 Run `cargo fmt --all -- --check`, `cargo lint`, and `cargo test`; validate the OpenSpec change and record outcomes and any environment limitations in this change folder, including the untested live registry connection. Confirm only intended files changed and mark completed tasks accurately. Commit as `chore(NA): record release publishing validation`. Do not run `bump.sh`, push tags, or invoke the release workflow.
+- [x] 2.1 Run `cargo fmt --all -- --check`, `cargo lint`, and `cargo test`; validate the OpenSpec change and record outcomes and any environment limitations in this change folder, including the untested live registry connection. Confirm only intended files changed and mark completed tasks accurately. Commit as `chore(NA): record release publishing validation`. Do not run `bump.sh`, push tags, or invoke the release workflow.
