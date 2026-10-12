@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Tags HEAD with the next release version and pushes the tag to origin; the tag
-# push triggers the Release workflow, which publishes openapi.yml.
+# push triggers the Release workflow, which publishes the service image and
+# a GitHub Release with openapi.yml attached.
 #
 #   scripts/bump.sh                 checks, menu, confirmation
 #   scripts/bump.sh --minor -y      checks only, no questions
@@ -195,4 +196,4 @@ git tag --annotate "$next" --message "Release $next"
 git push --quiet "$REMOTE" "refs/tags/$next" || die "push failed; removed the local tag $next"
 trap - EXIT
 
-echo "Pushed $next; the Release workflow is publishing it."
+echo "Pushed $next; the Release workflow is publishing the service image and API contract."
