@@ -6,16 +6,6 @@
 
 ## Happy path
 
-An organizer builds an event in four steps and then schedules it. From there, the event moves on its own, driven by `sale_starts_at`, the moment sales open:
-
-1. **Create** the event with a name (C1). It starts as a `Draft`, which only Event Service can see.
-2. **Price the zones** of a venue from Venue Service (C2).
-3. **Set the sales window**: when sales open and when they close (C3).
-4. **Add the show details**: artist, tour, support acts, event date, doors time, description and poster (C1).
-5. **Save** to schedule the event (C4). Event Service checks all four steps and moves the event to `Scheduled`.
-6. **Visible**: `EVENT_VISIBILITY_LEAD_DAYS` (10 by default) before sales open, Event Service publishes the event to Booking Service and Search Service (C6).
-7. **Locked**: once sales open, the event can no longer be edited (C5).
-
 [![image.png](diagrams/02-happy-path.png)](diagrams/02-happy-path.png)
 
 ---
