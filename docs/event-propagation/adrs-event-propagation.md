@@ -80,7 +80,6 @@ An event scheduled after its visibility moment is published by the scheduling tr
 
 - **Publish at scheduling with a "visible from" date.** Rejected: events would propagate before their visibility moment, and Search Service would enforce a rule owned by Event Service.
 - **Compute visibility only at query time.** Rejected: Booking Service and Search Service would never receive the event.
-- **Let the job publish late-scheduled events on its next run.** It would leave one code path for `EventPublished`. Rejected: C6 requires immediate propagation, and since C3 allows scheduling minutes before sales open, sales could open before Booking Service receives the event.
 
 ## ADR-004 - Integer event version and full-state messages
 
