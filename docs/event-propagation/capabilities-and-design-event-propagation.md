@@ -24,12 +24,14 @@ An organizer builds an event in four steps and then schedules it. From there, th
 
 | # | Capability | ADRs |
 |---|---|---|
-| C1 | **Create a new event** | |
-| C2 | **Select venue and price zones** | [ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes) |
-| C3 | **Set sales window** | |
-| C4 | **Schedule the event** | |
+| C1 | **Create a new event** | [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session) |
+| C2 | **Select venue and price zones** | [ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes), [ADR-005](adrs-event-propagation.md#adr-005---prices-in-us-dollars-as-integer-thousandths) |
+| C3 | **Set sales window** | [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session) |
+| C4 | **Schedule the event** | [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session) |
 | C5 | **Lock event after sale window opens** | [ADR-002](adrs-event-propagation.md#adr-002---use-the-database-clock-for-the-lock-and-timestamptz-for-all-times) |
-| C6 | **Event propagation to other services** | [ADR-003](adrs-event-propagation.md#adr-003---publish-events-with-a-scheduled-job-at-the-visibility-moment), [ADR-004](adrs-event-propagation.md#adr-004---integer-event-version-and-full-state-messages) |
+| C6 | **Event propagation to other services** | [ADR-003](adrs-event-propagation.md#adr-003---publish-events-with-a-scheduled-job-at-the-visibility-moment), [ADR-004](adrs-event-propagation.md#adr-004---integer-event-version-and-full-state-messages), [ADR-005](adrs-event-propagation.md#adr-005---prices-in-us-dollars-as-integer-thousandths), [ADR-006](adrs-event-propagation.md#adr-006---every-time-duration-and-numeric-limit-comes-from-an-environment-variable) |
+
+The endpoints and Kafka messages other services use are described in the [service contract](contract-event-service.md). ADR-006, ADR-007 and [ADR-008](adrs-event-propagation.md#adr-008---timeouts-retries-idempotency-and-circuit-breakers-on-every-call) apply to every capability.
 
 ---
 
@@ -41,10 +43,11 @@ An organizer builds an event in four steps and then schedules it. From there, th
 
 - Organizer captures the event name, artist, tour, support acts, event date, doors time, description and poster.
 - Event is created in `Draft` state; a draft is never visible outside Event Service.
+- The organizer is taken from the token Event Service verifies, never from the request body; only the organizer who owns a draft can read or edit it.
 - Every step is persisted as it is completed, so the organizer can leave and resume the draft later.
 - Event date is sent with its timezone offset and stored as an absolute UTC timestamp; it is displayed in the venue's timezone.
 
-**ADRs:** \[links\]
+**ADRs:** [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session)
 
 ##### Diagrams:
 
@@ -65,12 +68,12 @@ An organizer builds an event in four steps and then schedules it. From there, th
 ##### Expectations:
 
 - Organizer selects a venue from the existing venues in Venue Service (calling it directly via API); zones come from the venue layout; they are not defined per event.
-- Every zone of the selected venue must have a price greater than 0, in the event currency.
-- Each zone price references its zone in Venue Service and keeps a copy of the zone name.
+- Every zone of the selected venue must have a price greater than 0, as an integer in thousandths of a US dollar (`65000` is $65.00).
+- Each zone price references its zone in Venue Service and keeps a copy of the zone name. Zone names are read from Venue Service, never taken from the request.
 - Zones and prices are snapshotted into the event; later changes to the venue layout never alter an existing event.
 - Changing the venue soft-deletes the zone prices of the previous venue; soft-deleted prices are never used.
 
-**ADRs:** [ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)
+**ADRs:** [ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes), [ADR-005](adrs-event-propagation.md#adr-005---prices-in-us-dollars-as-integer-thousandths)
 
 ##### Diagrams:
 
@@ -95,7 +98,7 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 - Dates must satisfy `now < sale_starts_at < sale_ends_at <= event_starts_at`, validated against server time, never client time.
 - `sale_starts_at` is the single anchor for the event lifecycle: it defines when the event locks (C5) and when it propagates (C6). Moving it moves both.
 
-**ADRs:** \[links\]
+**ADRs:** [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session)
 
 ##### Diagrams:
 
@@ -120,7 +123,7 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 - Every zone of the selected venue must have a price greater than 0; an event with an unpriced zone stays in `Draft`.
 - The sales window is checked again at Save against server time, since `now` may have passed `sale_starts_at` after the window was saved.
 
-**ADRs:** \[links\]
+**ADRs:** [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session)
 
 ##### Diagrams:
 
@@ -161,11 +164,11 @@ In the race above the application check passes, but the database clock has alrea
 
 ### C6 - Event propagation to other services
 
-> ***As a buyer, I can discover an event 10 days before it goes on sale; as other services, we receive the event once it is ready to be public.***
+> ***As a buyer, I can discover an event `EVENT_VISIBILITY_LEAD_DAYS` days (10 by default) before it goes on sale; as other services, we receive the event once it is ready to be public.***
 
 ##### Expectations:
 
-- The 10-day lead time should be configurable at service level through `EVENT_VISIBILITY_LEAD_DAYS`.
+- The lead time is configurable at service level through `EVENT_VISIBILITY_LEAD_DAYS` (10 by default), like every other duration and limit (ADR-006).
 - At `sale_starts_at - EVENT_VISIBILITY_LEAD_DAYS`, Event Service publishes an `EventPublished` event through its outbox.
 - Drafts are never propagated, and `Scheduled` events are never propagated before their visibility moment.
 - If the event is scheduled when its visibility moment is already past (sale opens in less than N days), it is propagated immediately.
@@ -173,17 +176,19 @@ In the race above the application check passes, but the database clock has alrea
 - Every accepted edit increments the event's `version` in the same update that saves it.
 - Every `EventPublished` and `EventUpdated` message carries the full event (show details, zone prices and sales window) and its version.
 - Whether an edit emits `EventUpdated` depends on `published_at` as returned by the edit's own update, so an edit racing the scheduled job is never left unpublished.
-- A scheduled job in Event Service finds events that reached their visibility moment and publishes them.
-- Events are published to the Kafka topic `events.lifecycle`, keyed by event id, so all messages for one event keep their order.
+- A scheduled job in Event Service runs every `EVENT_PUBLISH_JOB_INTERVAL_SECONDS`, finds events that reached their visibility moment and publishes them.
+- Events are published to the Kafka topic `events.lifecycle` (set by `KAFKA_EVENTS_TOPIC`), keyed by event id, so all messages for one event keep their order.
 - Booking Service and Search Service subscribe to `events.lifecycle` with their own consumer groups, `booking-service` and `search-service`.
 
-**ADRs:** [ADR-003](adrs-event-propagation.md#adr-003---publish-events-with-a-scheduled-job-at-the-visibility-moment), [ADR-004](adrs-event-propagation.md#adr-004---integer-event-version-and-full-state-messages)
+**ADRs:** [ADR-003](adrs-event-propagation.md#adr-003---publish-events-with-a-scheduled-job-at-the-visibility-moment), [ADR-004](adrs-event-propagation.md#adr-004---integer-event-version-and-full-state-messages), [ADR-005](adrs-event-propagation.md#adr-005---prices-in-us-dollars-as-integer-thousandths), [ADR-006](adrs-event-propagation.md#adr-006---every-time-duration-and-numeric-limit-comes-from-an-environment-variable)
+
+Message format and consumer rules: [service contract](contract-event-service.md#kafka-topic-eventslifecycle).
 
 ##### Diagrams:
 
 [![image.png](diagrams/c6-publish-at-visibility.png)\[Publish at the visibility moment through the outbox\]](diagrams/c6-publish-at-visibility.png)
 
-Every X minutes, the scheduled job selects `Scheduled` events whose visibility moment has passed and that are not published yet. In one transaction it marks each one as published and puts `EventPublished` in the outbox. The relay then publishes the outbox rows to `events.lifecycle`, the same way Booking Service does for `ticketsold`.
+Every `EVENT_PUBLISH_JOB_INTERVAL_SECONDS`, the scheduled job selects `Scheduled` events whose visibility moment has passed and that are not published yet. In one transaction it marks each one as published and puts `EventPublished` in the outbox. The relay then publishes the outbox rows to `events.lifecycle`, the same way Booking Service does for `ticketsold`.
 
 [![image.png](diagrams/c6-event-updated.png)\[Edit after propagation emits EventUpdated\]](diagrams/c6-event-updated.png)
 
