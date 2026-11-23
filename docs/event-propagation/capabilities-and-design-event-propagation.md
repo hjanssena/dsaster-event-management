@@ -43,9 +43,9 @@ The endpoints and Kafka messages other services use are described in the [servic
 
 - Organizer captures the event name, artist, tour, support acts, event date, doors time, description and poster.
 - Event is created in `Draft` state; a draft is never visible outside Event Service.
-- The organizer is taken from the token Event Service verifies, never from the request body; only the organizer who owns a draft can read or edit it.
+- The organizer is taken from the token Event Service verifies (`sub`, with `role` `ORGANIZER`), never from the request body; only the organizer who owns a draft can read or edit it.
 - Every step is persisted as it is completed, so the organizer can leave and resume the draft later.
-- Event date is sent with its timezone offset and stored as an absolute UTC timestamp; it is displayed in the venue's timezone.
+- Event date is sent with its timezone offset and stored as an absolute UTC timestamp; it is displayed in the venue's timezone. Venue Service has no timezone field yet ([open questions](contract-event-service.md#open-questions)).
 
 **ADRs:** [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session)
 
@@ -67,7 +67,7 @@ The endpoints and Kafka messages other services use are described in the [servic
 
 ##### Expectations:
 
-- Organizer selects a venue from the existing venues in Venue Service (calling it directly via API); zones come from the venue layout; they are not defined per event.
+- Organizer selects a venue from the existing venues in Venue Service. Event Service calls `GET /venues/{id}` with the organizer's token; zones come from the venue layout; they are not defined per event. Venue Service does not return zones yet ([Venue Service](contract-event-service.md#venue-service) in the contract).
 - Every zone of the selected venue must have a price greater than 0, as an integer in thousandths of a US dollar (`65000` is $65.00).
 - Each zone price references its zone in Venue Service and keeps a copy of the zone name. Zone names are read from Venue Service, never taken from the request.
 - Zones and prices are snapshotted into the event; later changes to the venue layout never alter an existing event.
@@ -86,6 +86,8 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 **Edge cases:**
 
 [![image.png](diagrams/c2-edge-venue-not-found.png)\[Venue does not exist\]](diagrams/c2-edge-venue-not-found.png)
+
+**Venue Service unavailable or rejects the call.** On a timeout, connection error, `429` or `5xx`, Event Service retries and then returns `503` with `Retry-After`; a `401` or `403` from Venue Service is a configuration error and also returns `503` (ADR-008). Nothing is saved. Only a `404` means the venue does not exist (`422`).
 
 ---
 
@@ -121,6 +123,7 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 
 - When the organizer clicks Save, the event moves from `Draft` to `Scheduled` only if the name, all zone prices, the sales window and the show details are valid.
 - Every zone of the selected venue must have a price greater than 0; an event with an unpriced zone stays in `Draft`.
+- The event needs at least one priced zone, so a venue with no zones cannot pass the check (assumption, see [open questions](contract-event-service.md#open-questions)).
 - The sales window is checked again at Save against server time, since `now` may have passed `sale_starts_at` after the window was saved.
 
 **ADRs:** [ADR-007](adrs-event-propagation.md#adr-007---the-backend-validates-every-identity-role-and-session)
@@ -143,8 +146,9 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 
 ##### Expectations:
 
-- Any modification to an event where `now >= sale_starts_at` fails with `409: Event Locked`, regardless of the client.
-- Lock check and write happen in the same transaction (conditional update on `sale_starts_at > now()`), so an edit racing the sale opening can never slip through.
+- Any modification to a `Scheduled` event where `now >= sale_starts_at` fails with `409: Event Locked`, regardless of the client.
+- A `Draft` is never locked: it may have no sales window yet, and a draft whose sales start has passed stays editable so it can get a new window; scheduling it gets `422` (C4). Pending confirmation by Product ([open questions](contract-event-service.md#open-questions)).
+- Lock check and write happen in the same transaction (conditional update on `status = 'Draft' OR sale_starts_at > now()`), so an edit racing the sale opening can never slip through.
 
 **ADRs:** [ADR-002](adrs-event-propagation.md#adr-002---use-the-database-clock-for-the-lock-and-timestamptz-for-all-times)
 
@@ -158,7 +162,7 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 
 [![image.png](diagrams/c5-edge-race-with-sale-opening.png)\[Edit racing the sale opening\]](diagrams/c5-edge-race-with-sale-opening.png)
 
-In the race above the application check passes, but the database clock has already crossed `sale_starts_at` when the `UPDATE` runs. The `WHERE sale_starts_at > now()` condition matches 0 rows, the transaction rolls back and the organizer gets `409`.
+In the race above the application check passes, but the database clock has already crossed `sale_starts_at` when the `UPDATE` runs. The event is `Scheduled`, so the `WHERE status = 'Draft' OR sale_starts_at > now()` condition matches 0 rows, the transaction rolls back and the organizer gets `409`.
 
 ---
 
@@ -171,10 +175,10 @@ In the race above the application check passes, but the database clock has alrea
 - The lead time is configurable at service level through `EVENT_VISIBILITY_LEAD_DAYS` (10 by default), like every other duration and limit (ADR-006).
 - At `sale_starts_at - EVENT_VISIBILITY_LEAD_DAYS`, Event Service publishes an `EventPublished` event through its outbox.
 - Drafts are never propagated, and `Scheduled` events are never propagated before their visibility moment.
-- If the event is scheduled when its visibility moment is already past (sale opens in less than N days), it is propagated immediately.
+- If the event is scheduled when its visibility moment is already past (sale opens in less than `EVENT_VISIBILITY_LEAD_DAYS` days), it is propagated immediately.
 - Edits between propagation and the lock emit an `EventUpdated` event carrying the event version; consumers discard any version older than or equal to the one they have.
 - Every accepted edit increments the event's `version` in the same update that saves it.
-- Every `EventPublished` and `EventUpdated` message carries the full event (show details, zone prices and sales window) and its version.
+- Every `EventPublished` and `EventUpdated` message carries the full event (show details, zone prices and sales window) and its version. Each zone carries its `venue_zone_id`; seats are not included.
 - Whether an edit emits `EventUpdated` depends on `published_at` as returned by the edit's own update, so an edit racing the scheduled job is never left unpublished.
 - A scheduled job in Event Service runs every `EVENT_PUBLISH_JOB_INTERVAL_SECONDS`, finds events that reached their visibility moment and publishes them.
 - Events are published to the Kafka topic `events.lifecycle` (set by `KAFKA_EVENTS_TOPIC`), keyed by event id, so all messages for one event keep their order.

@@ -1,7 +1,7 @@
 # D-saster - Event Management Microservice
 
 **Short Description:**
-Welcome to the **Event Management Microservice** for **Dsaster**. This service owns the `EventManagement` sub-domain. It is responsible for the complete lifecycle of events—including event creation, venue assignment, seat mapping configuration, and sale scheduling. It provides the foundational event data needed by the high-concurrency sales platform to deliver reliable ticketing experiences.
+Welcome to the **Event Management Microservice** for **Dsaster**. This service owns the `EventManagement` sub-domain. It is responsible for the complete lifecycle of events—including event creation, venue assignment, zone pricing configuration, sale scheduling, and event propagation to downstream services. It provides the foundational event data needed by the high-concurrency sales platform to deliver reliable ticketing experiences.
 
 ---
 
@@ -18,11 +18,15 @@ Create your environment variables file:
 ```bash
 cp .env.example .env
 ```
-Ensure your `.env` contains the local database URL:
+The local development defaults in `.env.example` include:
 ```env
 SERVER_ADDR=0.0.0.0:3000
 DATABASE_URL=postgres://usuario:password@localhost:5432/event_store
+MOCK_AUTH=true
+MOCK_VENUE_SERVICE=true
+VENUE_SERVICE_URL=http://localhost:3001
 ```
+See [.env.example](.env.example) and [ADR-006 / ADR-007 / ADR-008](docs/event-propagation/adrs-event-propagation.md) for all environment variables (including upcoming Event Propagation, Kafka, JWT, and resiliency settings).
 
 ### 3. Start the Database
 Spin up the PostgreSQL database container.
@@ -49,12 +53,23 @@ If running dockerized:
 ```bash
 docker compose up -d
 ```
-*(The service will automatically run database migrations and seed test data on startup).*
+*(The service automatically runs SeaORM migrations and seeds two development partners—`dev_organizer` and `dev_venue_owner`—on startup).*
 
 ### 5. Verify the API
 - **Health Check:** `curl http://localhost:3000/health`
 - **Swagger UI (Interactive Docs):** [http://localhost:3000/swagger-ui](http://localhost:3000/swagger-ui)
 - **OpenAPI JSON Spec:** [http://localhost:3000/api-docs/openapi.json](http://localhost:3000/api-docs/openapi.json)
+
+---
+
+## Documentation
+
+- **API Brief (for Fan/Organizer Frontends, Booking & Search teams):** [docs/event-propagation/contract-brief.md](docs/event-propagation/contract-brief.md)
+- **Target Service Contract (HTTP & Kafka `events.lifecycle`):** [docs/event-propagation/contract-event-service.md](docs/event-propagation/contract-event-service.md)
+- **Capabilities & Design (C1–C6):** [docs/event-propagation/capabilities-and-design-event-propagation.md](docs/event-propagation/capabilities-and-design-event-propagation.md)
+- **Architecture Decision Records (ADR-001 to ADR-008):** [docs/event-propagation/adrs-event-propagation.md](docs/event-propagation/adrs-event-propagation.md)
+- **System Architecture, Data Model & Component Diagram:** [docs/architecture/architecture.md](docs/architecture/architecture.md), [docs/architecture/data-model.md](docs/architecture/data-model.md), [docs/component_diagram.md](docs/component_diagram.md)
+- **Local Development & Branching Process (Spanish):** [docs/process/development.md](docs/process/development.md), [docs/process/branching.md](docs/process/branching.md)
 
 ---
 
@@ -65,7 +80,9 @@ With the service running (default port `3000`):
 - **Swagger UI:** http://localhost:3000/swagger-ui/
 - **OpenAPI JSON:** http://localhost:3000/api-docs/openapi.json
 
-Both endpoints are public. Swagger UI supports trying API requests and supplying a bearer token through **Authorize** for event creation.
+Both endpoints are public. Swagger UI supports trying API requests and supplying a bearer token through **Authorize** for protected endpoints.
+
+> **Current vs. Target Contract:** `/swagger-ui` and `openapi.yml` describe the **currently implemented** endpoints on this branch. For the target HTTP & Kafka contract that consuming teams should build against, see [docs/event-propagation/contract-event-service.md](docs/event-propagation/contract-event-service.md).
 
 The served specification is generated from the Utoipa annotations at startup. To export the same specification as `openapi.yml`, run:
 

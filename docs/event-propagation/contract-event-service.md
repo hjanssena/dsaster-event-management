@@ -31,6 +31,45 @@ This is what Event Service offers other services: HTTP endpoints to read and bui
 
 ---
 
+## Services Event Service calls
+
+Reviewed on 2026-11-16 against `venues` `main` (`c01e597`, `openapi.json` version `1.0.0`) and `TicketDSaster-Auth` `main` (`587250f`). Gaps are listed in [Open questions](#open-questions).
+
+### Venue Service
+
+| Item | Contract today |
+|---|---|
+| Endpoint used | `GET /venues/{id}` (alias `/api/venues/{id}`). There is no `/api/v1` prefix. |
+| Auth | Bearer JWT required on every endpoint, role `VENUE_OWNER` or `ORGANIZER`. Event Service forwards the organizer's token; Auth Service has no service role. |
+| Response | `id`, `name`, `description`, `location` (free text address), `ownerId`, `createdAt`. |
+| Zones | Stored by Venue Service (`id`, `name`, unique per venue, with seats), but **no endpoint returns or creates them**. `PUT /api/v1/events/{id}/venue` cannot snapshot zones until this exists. |
+| Time zone | Not available. A venue has no time zone field. |
+| Errors | `401`, `403`, `404`, `500`, with body `{"error": "..."}`. |
+| Change notifications | None. This is why zones are snapshotted into the event ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)). |
+
+| Venue Service answers | Event Service returns |
+|---|---|
+| `200` | Continues with the venue's zones. |
+| `404` | `422` venue does not exist. |
+| `401` or `403` | `503` with `Retry-After`, logged as a configuration error. Event Service has already verified the same token with the same secret, so this means the two services disagree (see [Open questions](#open-questions)). |
+| Timeout, connection error, `429`, `5xx` | Retried, then `503` with `Retry-After` ([ADR-008](adrs-event-propagation.md#adr-008---timeouts-retries-idempotency-and-circuit-breakers-on-every-call)). |
+
+### Auth Service
+
+Event Service never calls Auth Service during a request: tokens are verified locally.
+
+| Item | Contract today |
+|---|---|
+| Token | JWT signed with `HS256` and the shared secret `JWT_SECRET`. Event Service accepts only `HS256`. |
+| Claims | `sub` (user id, UUID), `role` (`ORGANIZER` or `VENUE_OWNER`, uppercase), `iat`, `exp`. No `iss`, `aud` or user name. |
+| Lifetime | 8 hours (`JWT_EXPIRES_IN_SECONDS`). No refresh endpoint. |
+| Keys | None to fetch: `GET /.well-known/jwks.json` returns no key material, because the secret is shared. `POST /auth/validate` exists but is not needed. |
+| Users | Stored in memory: `sub` values change when Auth Service restarts. Auth Service offers no endpoint or event to list or sync users. |
+
+The organizer is the token's `sub`, and organizer endpoints require `role` `ORGANIZER`, compared without case. Because there are no keys to fetch, an Auth Service outage cannot affect token verification. ADR-007 and ADR-008 were amended on 2026-11-16 to match: no issuer check until the token has `iss`, no partner lookup, and no call to Auth Service.
+
+---
+
 ## Event lifecycle
 
 | Stage | When | `status` | Visible to |
@@ -163,15 +202,15 @@ Errors: `400` malformed id, `404` not found or not visible to the caller, `503` 
 
 ### Organizer endpoints
 
-All require a bearer token. Event Service resolves the partner from the verified token and checks the role and ownership on every request.
+All require a bearer token. Event Service extracts the organizer and role from the verified token and checks ownership on every request.
 
 | Status | Meaning on every organizer endpoint |
 |---|---|
-| `401` | Token missing, invalid or expired, or partner unknown. |
+| `401` | Token missing, invalid or expired. |
 | `403` | Partner is not an organizer. |
 | `404` | Event does not exist or belongs to another organizer. |
 | `409` | Event locked: the event is `Scheduled` and `sales_window.starts_at` has passed (C5). Any edit endpoint. |
-| `503` | Request timed out, or Auth Service, Venue Service or the database cannot answer. Carries `Retry-After`. An Auth Service outage is `503`, never `401`. |
+| `503` | Request timed out, or Venue Service or the database cannot answer. Carries `Retry-After`. Tokens are verified locally, so an Auth Service outage never causes `401` or `503`. |
 
 A request that sends a field Event Service owns (`id`, `organizer_id`, `status`, `version`, `published_at`, `created_at`, `updated_at`, zone `name`) gets `400`. Each successful edit returns `200` with the full event object and its new `version`. Edits to a `Scheduled` event must keep every C4 check true, or they get `422`.
 
@@ -301,11 +340,18 @@ The current `openapi.yml` (generated from `main`) differs from this contract. Co
 
 | Question | Owner | Current assumption |
 |---|---|---|
-| Token format, issuer and verification keys | Auth Service | Bearer JWT. Until defined, only local development works (ADR-007). |
+| Will the token get `iss` and `aud` claims? ADR-007 checks the issuer once it exists. | Auth Service | Verify `HS256` signature, `exp`, `sub` and `role` only. |
+| Will users be persisted, so `sub` stays the same across Auth Service restarts? | Auth Service | Not yet. A restart orphans `organizer_id` on existing events, so shared environments need persistence before the first release. |
+| Will there be a token refresh? An 8-hour token can expire while an organizer edits a draft. | Auth Service | No refresh. The organizer logs in again; the draft is already saved step by step (C1). |
+| How does Venue Service expose a venue's zones (`id`, `name`), and how are zones created? | Venue Service | Proposal: `zones` in `GET /venues/{id}`, or `GET /venues/{id}/zones`. Blocks `PUT /api/v1/events/{id}/venue` (C2) and the schedule check (C4). Develop against `MockVenueClient`. |
+| Do zone ids stay the same when a venue owner edits the layout? | Venue Service | Yes. The event keeps its snapshot either way, but consumers match seats by `venue_zone_id`. |
+| How does Booking Service get the seats of each zone? Messages carry zones and prices, not seats, and Venue Service has no seats endpoint. | Booking Service, Venue Service | Booking reads seats from Venue Service by `venue_zone_id`, once that endpoint exists. |
+| Can an event be scheduled at a venue with no zones? Without a rule, "every zone priced" passes when there are none. | Product | No. Scheduling needs at least one priced zone (`422`). |
+| What does a `401` or `403` from Venue Service mean, when Event Service already accepted the same token? | Event Service, Venue Service | A configuration mismatch (secret or role names). Returned as `503` and logged, never passed to the organizer as `401`. |
 | Must prices be whole cents (multiples of 10)? | Payment / Booking | Event Service accepts any positive integer (ADR-005). |
 | Which show details are required to schedule? | Product | `name`, `artist`, `event_starts_at`, venue with every zone priced, and sales window. `tour`, `support_acts`, `doors_open_at`, `description` and `poster_url` are optional. |
-| Should events carry the venue name and time zone? | Venue Service | No. Consumers read them from Venue Service by `venue_id`. |
-| Keep `event_type`, `age_policy` and `terms`? | Product | Not in C1, so not in this contract. They stay in the database until decided. |
+| Should events carry the venue name and time zone? Venue Service has no time zone field, and every venue endpoint requires a `VENUE_OWNER` or `ORGANIZER` token, so fans, Search Service and Booking Service cannot read venues today. | Venue Service, Search Service, Booking Service | No. Consumers read them from Venue Service by `venue_id`, which needs a public or service-to-service read and a time zone (IANA name, e.g. `America/Mexico_City`) on the venue. |
+| Keep `event_type`, `age_policy` and `terms`? | Product | Not in C1 or the v1 contract; dropped in the target [data model](../architecture/data-model.md) and can be re-introduced later if Product requests them. |
 | Cancellation after sales open | Product | Not designed. No message type exists for it. |
 | Retention of `events.lifecycle` | Platform | Log compaction (`cleanup.policy=compact`), so a new consumer can read the latest state of every public event from the topic. |
-| Does the lock apply to a draft whose `sale_starts_at` has passed? | Product | No. C5 and ADR-002 say every edit, but then such a draft could never get a new window. The lock applies once the event is `Scheduled`; scheduling the draft gets `422` (C4 diagram). |
+| Does the lock apply to a draft whose `sale_starts_at` has passed? | Product | No. Otherwise such a draft could never get a new window, and a draft with no window yet (`sale_starts_at` null) could never be edited. The lock applies once the event is `Scheduled`; scheduling the draft gets `422` (C4 diagram). C5, ADR-002 and ADR-004 already use this condition. |
