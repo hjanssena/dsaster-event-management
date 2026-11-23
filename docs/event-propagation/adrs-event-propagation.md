@@ -22,6 +22,7 @@ Editing a price on the same venue (Pit from `65000` to `70000`, $65 to $70, see 
 - There is no price history; other services still receive each change through `EventUpdated` (C6).
 - A new migration adds `venue_zone_id` and `deleted_at` to `event_pricing_tiers` and drops the unused `event_seats` table.
 - A unique index on `event_id` and `venue_zone_id`, if added, must apply only where `deleted_at` is null.
+- This decision needs Venue Service to return each zone's `id` and `name`, which its contract does not do yet (see [Open questions](contract-event-service.md#open-questions)). Venue Service publishes no change events, so the snapshot is the only way to keep an event stable.
 
 ### Alternatives considered
 
@@ -40,7 +41,7 @@ No edit may be saved once `now >= sale_starts_at` (C5). Event Service checks thi
 
 ### Decision
 
-Every edit is written with `WHERE sale_starts_at > now()`, using the database clock; if no row is updated, Event Service returns `409 Event Locked`. Event Service still checks the lock before writing, so most locked edits are rejected without a write. Every time column, including new ones, uses `timestamptz`.
+Every edit is written with `WHERE status = 'Draft' OR sale_starts_at > now()`, using the database clock; if no row is updated, Event Service returns `409 Event Locked`. The lock applies only to `Scheduled` events: a draft may have no sales window yet (`sale_starts_at` is null), and a draft whose sales start has passed must stay editable so it can get a new window. Scheduling such a draft gets `422` (C4). Product still has to confirm this (see [Open questions](contract-event-service.md#open-questions)). Event Service still checks the lock before writing, so most locked edits are rejected without a write. Every time column, including new ones, uses `timestamptz`.
 
 ### Consequences
 
@@ -74,6 +75,7 @@ An event scheduled after its visibility moment is published by the scheduling tr
 - Other services see an event up to `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` plus `OUTBOX_RELAY_INTERVAL_MS` after its visibility moment.
 - A new migration adds `published_at` (`timestamptz`) to `events`.
 - Setting `published_at` only where it is still null publishes each event once, even if the job runs twice or concurrently.
+- The job reads only Event Service's database: it calls neither Venue Service nor Auth Service and needs no token, which matters because Auth Service has no service role.
 - Changing `EVENT_VISIBILITY_LEAD_DAYS` affects only unpublished events. This differs from the PRD criterion that a change affects every event on the next query.
 
 ### Alternatives considered
@@ -99,7 +101,7 @@ An event scheduled after its visibility moment is published by the scheduling tr
 
 The outbox row is written in the same Postgres transaction that changes the event:
 
-- **Edit:** `UPDATE events SET …, version = version + 1 WHERE id = :id AND sale_starts_at > now() RETURNING *`. If the returned row has `published_at` set, insert `EventUpdated` built from it.
+- **Edit:** `UPDATE events SET …, version = version + 1 WHERE id = :id AND (status = 'Draft' OR sale_starts_at > now()) RETURNING *` (lock condition from ADR-002). If the returned row has `published_at` set, insert `EventUpdated` built from it.
 - **Publish:** `UPDATE events SET published_at = now() WHERE id = :id AND published_at IS NULL RETURNING *`, then insert `EventPublished` built from it. `version` does not change.
 
 An edit decides whether to emit `EventUpdated` from its own `RETURNING`, never from an earlier read. Postgres makes a second update to the same row wait for the first to commit, so an edit racing the job sees the committed `published_at`, and each event's outbox rows follow version order.
@@ -213,7 +215,7 @@ Rules that define the domain are not variables: a price greater than `0`, `page 
 
 | Status | Date | Capability |
 |---|---|---|
-| Accepted | 2026-11-15 | All |
+| Accepted, amended 2026-11-16 | 2026-11-15 | All |
 
 ### Context
 
@@ -221,8 +223,8 @@ The team agreed that a service never trusts identity or session data sent by the
 
 ### Decision
 
-- **Identity.** The organizer comes only from a bearer token that Event Service verifies (signature, expiry, issuer). `organizer_id` is never read from a body, query or header.
-- **Role and ownership.** On every protected request the service layer checks that the partner exists, has the organizer role and owns the event. A partner that is not an organizer gets `403`. An event the caller does not own gets `404`, so its existence is not revealed.
+- **Identity.** The organizer comes only from a bearer token that Event Service verifies locally: `HS256` signature with the shared `JWT_SECRET` (no other algorithm accepted), `exp`, and a UUID `sub`. The issuer is checked once Auth Service adds an `iss` claim. `organizer_id` is never read from a body, query or header.
+- **Role and ownership.** On every protected request the service layer checks that the token's `role` is `ORGANIZER` (compared without case, since Auth Service sends it in uppercase) and that the organizer owns the event. A partner that is not an organizer gets `403`. An event the caller does not own gets `404`, so its existence is not revealed.
 - **Fields the server owns.** `id`, `organizer_id`, `status`, `version`, `published_at`, `created_at`, `updated_at` and zone names are set by Event Service only. A request that sends one of them gets `400`.
 - **Time.** Every time check uses the server clock (C3, C4) or the database clock (C5, ADR-002). The client's clock is never used.
 - **Visibility.** Public endpoints return only published events, whatever filter the client sends (C1, C6).
@@ -231,8 +233,18 @@ The team agreed that a service never trusts identity or session data sent by the
 ### Consequences
 
 - A client cannot act as another organizer, read another organizer's drafts or set server-owned state.
-- Until Auth Service defines its token, no shared environment can satisfy this ADR. Verifying that token is a dependency for the first release.
+- Auth Service has defined its token (see [Auth Service](contract-event-service.md#auth-service) in the service contract), so a shared environment can satisfy this ADR once `MockTokenVerifier` is replaced. What still blocks the first release is that Auth Service keeps users in memory: a restart changes every `sub` and orphans `organizer_id`.
+- Event Service needs `JWT_SECRET`, shared with Auth Service and Venue Service. Any service holding it can sign tokens, so it is handled as a credential: never committed, and set per environment.
 - Each protected endpoint needs tests for `401`, `403` and `404` on another organizer's event.
+
+### Amendment - 2026-11-16
+
+The first version checked the issuer and that "the partner exists". Reviewing the Auth Service contract (`TicketDSaster-Auth` `main`, `587250f`) showed that:
+
+- The token is `HS256` with a shared secret, with claims `sub`, `role`, `iat` and `exp` only. There is no `iss` to check.
+- Auth Service offers no endpoint or event to list or sync users, so the local `partners` table cannot be kept up to date. Checking it would reject every real organizer with `401`. The `partners` table and its foreign key on `events.organizer_id` are dropped (see [Data Model](../architecture/data-model.md)), and Event Service trusts `sub` and `role` from the verified token directly.
+
+The decision now checks only what the token carries. It is otherwise unchanged.
 
 ### Alternatives considered
 
@@ -243,7 +255,7 @@ The team agreed that a service never trusts identity or session data sent by the
 
 | Status | Date | Capability |
 |---|---|---|
-| Accepted | 2026-11-15 | All |
+| Accepted, amended 2026-11-16 | 2026-11-15 | All |
 
 ### Context
 
@@ -258,7 +270,6 @@ Each call gets the methods that fit it. All numbers are environment variables (A
 | Call | Timeout | Retry | Idempotency | Circuit breaker |
 |---|---|---|---|---|
 | **Out:** Venue Service (C2) | Per attempt | Yes | Reads only, safe to repeat | Yes |
-| **Out:** Auth Service keys (ADR-007) | Per attempt | Yes | Reads only, safe to repeat | Yes, and keep using cached keys |
 | **Out:** Kafka, outbox relay (ADR-004) | Per message | Yes, on the next relay run | Idempotent producer, versioned messages | No: the outbox absorbs the outage |
 | **Out:** PostgreSQL | Pool acquire and statement | No retry inside a request | Transactions | No |
 | **In:** HTTP API | Per request | Clients may retry | `Idempotency-Key` on `POST /api/v1/events`; other edits are idempotent | No |
@@ -268,8 +279,8 @@ Each call gets the methods that fit it. All numbers are environment variables (A
 - **Timeouts.** Every attempt has its own timeout, and the attempts of one incoming request together never exceed `HTTP_REQUEST_TIMEOUT_MS`. When the remaining time is shorter than one attempt, Event Service stops retrying.
 - **Retries.** Only on a connection error, a timeout, `429`, `502`, `503` or `504`; never on another `4xx`. Exponential backoff with full jitter: the wait before retry `n` is a random value between 0 and `RETRY_BASE_DELAY_MS * 2^n`, capped at `RETRY_MAX_DELAY_MS`. A `Retry-After` header from the other service is respected.
 - **Circuit breaker.** One breaker per service. After `CIRCUIT_BREAKER_FAILURE_THRESHOLD` consecutive failed calls (after retries) it opens, and calls fail at once for `CIRCUIT_BREAKER_OPEN_SECONDS`. Then a single trial call is allowed: success closes the breaker, failure opens it again. 4xx responses other than `429` do not count as failures.
-- **What the caller sees.** When Venue Service or Auth Service cannot answer, Event Service returns `503 Service Unavailable` with `Retry-After`, never `500`. An Auth Service outage never becomes `401`, so organizers are not logged out by it.
-- **Auth Service keys.** Verification keys are cached for `AUTH_KEYS_CACHE_SECONDS`. If a refresh fails, Event Service keeps verifying with the cached keys and retries the refresh on the next request.
+- **What the caller sees.** When Venue Service cannot answer, Event Service returns `503 Service Unavailable` with `Retry-After`, never `500`. A `401` or `403` from Venue Service is not passed on: Event Service has already verified the same token with the same secret, so it means the two services disagree (secret or role names). It is logged as a configuration error and returned as `503`, and it is not retried.
+- **Auth Service is not called.** Tokens are verified locally with the shared secret (ADR-007), so an Auth Service outage never causes `401` or `503`, and organizers are not logged out by it.
 
 #### Kafka
 
@@ -299,8 +310,6 @@ Each call gets the methods that fit it. All numbers are environment variables (A
 |---|---|---|
 | `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Total time for one incoming request |
 | `VENUE_SERVICE_TIMEOUT_MS` | `2000` | One attempt to Venue Service (replaces the hardcoded 3 seconds) |
-| `AUTH_SERVICE_TIMEOUT_MS` | `2000` | One attempt to fetch Auth Service keys |
-| `AUTH_KEYS_CACHE_SECONDS` | `300` | How long verification keys are cached |
 | `RETRY_MAX_ATTEMPTS` | `3` | Attempts per outgoing call, including the first |
 | `RETRY_BASE_DELAY_MS` | `100` | Base of the exponential backoff |
 | `RETRY_MAX_DELAY_MS` | `2000` | Longest wait between attempts |
@@ -319,7 +328,7 @@ Each call gets the methods that fit it. All numbers are environment variables (A
 - `AppError` gains a `ServiceUnavailable` variant (`503` with `Retry-After`).
 - A new migration adds an `idempotency_keys` table (`key`, `organizer_id`, request hash, response status and body, `created_at`), and the scheduled job deletes rows older than `IDEMPOTENCY_KEY_TTL_HOURS`.
 - Breaker state lives in each instance's memory, so with several instances each opens on its own. This is enough for one dependency per breaker.
-- Timeouts and retries use `reqwest` and `tower`, already dependencies, plus the `timeout` feature of `tower-http`. The circuit breaker is a small state machine behind the `VenueClient` and `TokenVerifier` traits, with no new crate. The Kafka producer crate is needed for C6 anyway and is named in its proposal.
+- Timeouts and retries use `reqwest` and `tower`, already dependencies, plus the `timeout` feature of `tower-http`. The circuit breaker is a small state machine behind the `VenueClient` trait, with no new crate. `TokenVerifier` makes no network call and needs none. The Kafka producer crate is needed for C6 anyway and is named in its proposal.
 - Each behavior needs tests with the mocks: retry then success, retries exhausted to `503`, breaker open to immediate `503`, and a repeated `Idempotency-Key`.
 
 ### Alternatives considered
@@ -328,3 +337,9 @@ Each call gets the methods that fit it. All numbers are environment variables (A
 - **A breaker on Kafka.** Rejected: the outbox already decouples requests from Kafka, so failing fast would protect nothing.
 - **Make `POST /api/v1/events` idempotent by event name.** Rejected: an organizer can create two drafts with the same name on purpose.
 - **Shared breaker state in Redis.** Rejected for this release: it adds a dependency that itself needs a breaker.
+
+### Amendment - 2026-11-16
+
+The first version had an outgoing call to fetch and cache Auth Service verification keys, with `AUTH_SERVICE_TIMEOUT_MS` (`2000`) and `AUTH_KEYS_CACHE_SECONDS` (`300`). The Auth Service contract (`TicketDSaster-Auth` `main`, `587250f`) signs tokens with `HS256` and a shared secret, and `GET /.well-known/jwks.json` returns no key, so there is nothing to fetch. The row, the cache rule and both variables are removed, and Event Service makes no call to Auth Service. If Auth Service moves to asymmetric keys published as a JWKS, that call returns with a timeout, retries, a breaker and a key cache.
+
+The amendment also defines what a `401` or `403` from Venue Service means (see *What the caller sees*), since Venue Service requires the organizer's token on every endpoint.
