@@ -4,10 +4,14 @@ Instructions for AI coding agents working in this repository. Humans should star
 
 ## Project
 
-Event Management microservice for Dsaster. It owns the `EventManagement` sub-domain: event creation, venue assignment, seat mapping, pricing tiers and sale scheduling.
+Event Management microservice for Dsaster. It owns the `EventManagement` sub-domain: event creation, venue assignment, zone pricing, sale scheduling, and event propagation to downstream services.
 
 - Rust (edition 2024), Axum 0.7, SeaORM 1.0 on PostgreSQL, Tokio, utoipa for OpenAPI.
-- Architecture: [docs/architecture/architecture.md](docs/architecture/architecture.md). Components: [docs/component_diagram.md](docs/component_diagram.md).
+- Target capabilities, contract & ADRs:
+  - [docs/event-propagation/capabilities-and-design-event-propagation.md](docs/event-propagation/capabilities-and-design-event-propagation.md)
+  - [docs/event-propagation/contract-event-service.md](docs/event-propagation/contract-event-service.md)
+  - [docs/event-propagation/adrs-event-propagation.md](docs/event-propagation/adrs-event-propagation.md)
+- Architecture: [docs/architecture/architecture.md](docs/architecture/architecture.md). Data model: [docs/architecture/data-model.md](docs/architecture/data-model.md). Components: [docs/component_diagram.md](docs/component_diagram.md).
 - Team process (in Spanish): [docs/process/branching.md](docs/process/branching.md), [docs/process/development.md](docs/process/development.md).
 
 ## Layout
@@ -46,23 +50,44 @@ openspec/          # Specs and change proposals (see Spec-driven workflow)
 
 A task is done only when the format check, `cargo lint` and `cargo test` all pass. CI (`.github/workflows/validation.yml`) runs the same commands on every PR to `main` and `testing`.
 
-Environment variables (read only in `src/config.rs`):
+Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-008):
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `DATABASE_URL` | required | Postgres connection |
-| `SERVER_ADDR` | `0.0.0.0:3000` | Bind address |
-| `MOCK_AUTH` | `true` | In-memory dev partners instead of the `partners` table |
-| `MOCK_VENUE_SERVICE` | `true` | `MockVenueClient` instead of calling Venue Management |
-| `VENUE_SERVICE_URL` | `http://localhost:3001` | Venue Management base URL |
+| Variable | Default | Status | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | required | Implemented | Postgres connection |
+| `SERVER_ADDR` | `0.0.0.0:3000` | Implemented | Bind address |
+| `MOCK_AUTH` | `true` | Implemented | Local dev/tests only: mock tokens & dev partners instead of `HS256` JWT (ADR-007) |
+| `MOCK_VENUE_SERVICE` | `true` | Implemented | `MockVenueClient` instead of calling Venue Service |
+| `VENUE_SERVICE_URL` | `http://localhost:3001` | Implemented | Venue Service base URL |
+| `JWT_SECRET` | required when `MOCK_AUTH=false` | Planned (ADR-007) | Shared `HS256` secret for local JWT verification (never commit) |
+| `EVENT_VISIBILITY_LEAD_DAYS` | `10` | Planned (ADR-006) | Days before `sale_starts_at` when an event is published (C6) |
+| `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` | `60` | Planned (ADR-006) | Scheduled publish job interval (ADR-003) |
+| `OUTBOX_RELAY_INTERVAL_MS` | `1000` | Planned (ADR-006) | Outbox relay polling interval (ADR-004) |
+| `OUTBOX_RELAY_BATCH_SIZE` | `100` | Planned (ADR-006) | Outbox rows processed per relay read (ADR-004) |
+| `EVENTS_PAGE_SIZE_DEFAULT` | `10` | Planned (ADR-006) | Default `per_page` when omitted |
+| `EVENTS_PAGE_SIZE_MAX` | `100` | Planned (ADR-006) | Maximum `per_page` accepted (larger values are clamped) |
+| `KAFKA_BROKERS` | `localhost:9092` | Planned (ADR-006) | Kafka bootstrap servers |
+| `KAFKA_EVENTS_TOPIC` | `events.lifecycle` | Planned (ADR-006) | Topic for `EventPublished` and `EventUpdated` (C6) |
+| `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Planned (ADR-008) | Total time for one incoming HTTP request |
+| `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Planned (ADR-008) | Per-attempt timeout calling Venue Service |
+| `RETRY_MAX_ATTEMPTS` | `3` | Planned (ADR-008) | Total attempts per outgoing call, including the first |
+| `RETRY_BASE_DELAY_MS` | `100` | Planned (ADR-008) | Base delay for exponential backoff with full jitter |
+| `RETRY_MAX_DELAY_MS` | `2000` | Planned (ADR-008) | Longest wait between retry attempts |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Planned (ADR-008) | Consecutive failures (after retries) that open a breaker |
+| `CIRCUIT_BREAKER_OPEN_SECONDS` | `30` | Planned (ADR-008) | Time a breaker stays open before a trial call |
+| `KAFKA_MESSAGE_TIMEOUT_MS` | `30000` | Planned (ADR-008) | Time the Kafka producer tries to deliver one message |
+| `OUTBOX_RELAY_MAX_BACKOFF_MS` | `30000` | Planned (ADR-008) | Longest wait of the outbox relay after failures |
+| `DB_POOL_ACQUIRE_TIMEOUT_MS` | `3000` | Planned (ADR-008) | Wait for a pooled database connection |
+| `DB_STATEMENT_TIMEOUT_MS` | `5000` | Planned (ADR-008) | Longest single SQL statement |
+| `IDEMPOTENCY_KEY_TTL_HOURS` | `24` | Planned (ADR-008) | Retention time for `Idempotency-Key` records |
 
 ## Code conventions
 
 - **Dependencies are traits.** Services take `Arc<dyn Trait>` (`EventRepository`, `PartnerRepository`, `VenueClient`, `TokenVerifier`). Every new external dependency gets a trait, a real implementation and a `Mock*` implementation, and `main.rs` selects between them.
-- **Errors.** Return `AppError` from services and handlers. Use the variant that matches the status code (`BadRequest` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `UnprocessableEntity` 422). Never put database or internal error details in a response; `DatabaseError` and `InternalServerError` already log them and return a generic message.
-- **Validation** lives in the service layer, not in handlers. Clamp pagination (`page >= 1`, `per_page` between 1 and 100) the way `EventService::get_events` does.
-- **Auth.** Protected endpoints take the `AuthenticatedPartner` extractor from `src/api/auth.rs` and check the partner's role in the service. Tokens are `mock:<partner-uuid>` until the auth service defines the JWT.
-- **Never trust the client.** Identity, role and ownership come only from the token the service verifies, never from a body, query or header field. Fields the server owns (`organizer_id`, `status`, `version`, `published_at`, timestamps) are rejected with 400 if a request sends them. Time checks use the server or database clock. See ADR-007 in `docs/event-propagation/adrs-event-propagation.md`.
+- **Errors.** Return `AppError` from services and handlers. Use the variant that matches the status code (`BadRequest` 400 for malformed requests, server-owned fields or missing `Idempotency-Key`; `Unauthorized` 401; `Forbidden` 403; `NotFound` 404; `Conflict` 409 for event locked or in-progress idempotency key; `UnprocessableEntity` 422 for domain rule violations; `ServiceUnavailable` 503 with `Retry-After` for timeouts or unavailable dependencies). Never put database or internal error details in a response; `DatabaseError` and `InternalServerError` already log them and return a generic message.
+- **Validation** lives in the service layer, not in handlers. Clamp pagination (`page >= 1`, `per_page` between `1` and `EVENTS_PAGE_SIZE_MAX`, defaulting to `EVENTS_PAGE_SIZE_DEFAULT`) the way `EventService::get_events` does.
+- **Auth.** Protected endpoints take the `AuthenticatedPartner` extractor from `src/api/auth.rs` and check the partner's role (`ORGANIZER`, case-insensitive) and ownership in the service. Per ADR-007, Auth Service issues `HS256` JWTs (`sub`, `role`, `iat`, `exp`) verified locally with `JWT_SECRET` (no runtime call to Auth Service); `mock:<partner-uuid>` remains wired for local development and tests (`MOCK_AUTH=true`) until `MockTokenVerifier` is replaced.
+- **Never trust the client.** Identity, role and ownership come only from the token the service verifies, never from a body, query or header field. Fields the server owns (`id`, `organizer_id`, `status`, `version`, `published_at`, `created_at`, `updated_at`, zone `name`) are rejected with 400 if a request sends them. Time checks use the server or database clock. See ADR-007 in `docs/event-propagation/adrs-event-propagation.md`.
 - **No hardcoded days, durations or limits.** Every one is an environment variable read in `src/config.rs`, with its unit in the name (`_DAYS`, `_SECONDS`, `_MS`). Add it to ADR-006, `.env.example` and the table above. Domain rules (price > 0, date order) stay in code.
 - **Resiliency on every call** (ADR-008). Outgoing calls have a per-attempt timeout, retries with exponential backoff and jitter on connection errors, timeouts, 429 and 5xx, and a circuit breaker per service; an unavailable dependency returns `503` with `Retry-After`, never `500` or `401`. Incoming requests are cut at `HTTP_REQUEST_TIMEOUT_MS`. `POST` endpoints that create something require an `Idempotency-Key`; other edits must be safe to repeat.
 - **Money is an integer in thousandths of a US dollar** (`1000` = $1.00, `65500` = $65.50): `i64` in Rust, `bigint` in Postgres, a JSON integer in the API and Kafka. Never `f64`, `Decimal` or a string. See ADR-005.

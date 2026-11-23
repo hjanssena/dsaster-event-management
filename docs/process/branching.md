@@ -70,6 +70,7 @@ El proyecto utiliza una estrategia basada en tres entornos principales, alineado
    - Aquí se escribe el código.
    - **Ramas:** Las creadas a partir de tickets (`feat_...`, `fix_...`, `chore_...`, etc.).
    - Al terminar la tarea, se envía un Pull Request hacia la rama `testing`.
+   - El título del Pull Request debe seguir el mismo formato que los commits (`tipo(identificador): descripción breve`). Todo PR hacia `testing` o `main` ejecuta automáticamente el workflow de CI (`validation.yml`: formato, Clippy y pruebas). Para el flujo spec-driven con OpenSpec, consulta [AGENTS.md](../../AGENTS.md).
 2. **Pruebas (Testing / QA):**
    - **Rama:** `testing`
    - Entorno intermedio. Aquí se junta el código de todos los desarrolladores para verificar que nada se haya roto al integrarse.
