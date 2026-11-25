@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ModelTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -13,7 +14,7 @@ use crate::model::{
     dtos::{
         CreateEventRequestDto, EventConfirmationDto, EventMediaDto, EventPaginationQueryDto,
         EventPricingTierDto, EventResponseDto, EventSaleDto, EventScheduleDto, EventSummaryDto,
-        PaginatedEventSummaryResponse, PaginatedResponseDto,
+        EventUpdateChanges, PaginatedEventSummaryResponse, PaginatedResponseDto,
     },
     event, event_media, event_pricing_tier, event_sale, event_schedule,
 };
@@ -37,6 +38,87 @@ pub trait EventRepository: Send + Sync {
         event_id: Uuid,
         organizer_id: Uuid,
     ) -> Result<EventConfirmationDto, AppError>;
+
+    async fn update_event(
+        &self,
+        id: Uuid,
+        changes: &EventUpdateChanges,
+    ) -> Result<Option<EventResponseDto>, AppError>;
+}
+
+async fn load_event_aggregate<C: ConnectionTrait>(
+    conn: &C,
+    event_model: event::Model,
+) -> Result<EventResponseDto, AppError> {
+    let schedules = event_model
+        .find_related(event_schedule::Entity)
+        .order_by_asc(event_schedule::Column::CreatedAt)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|s| EventScheduleDto {
+            id: s.id,
+            starts_at: s.starts_at,
+            ends_at: s.ends_at,
+        })
+        .collect();
+
+    let pricing_tiers = event_model
+        .find_related(event_pricing_tier::Entity)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|p| EventPricingTierDto {
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            price: p.price,
+            currency: p.currency,
+        })
+        .collect();
+
+    let sales = event_model
+        .find_related(event_sale::Entity)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|s| EventSaleDto {
+            id: s.id,
+            starts_at: s.starts_at,
+            ends_at: s.ends_at,
+        })
+        .collect();
+
+    let media = event_model
+        .find_related(event_media::Entity)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(|m| EventMediaDto {
+            id: m.id,
+            media_type: m.media_type,
+            url: m.url,
+        })
+        .collect();
+
+    Ok(EventResponseDto {
+        id: event_model.id,
+        organizer_id: event_model.organizer_id,
+        venue_id: event_model.venue_id,
+        name: event_model.name,
+        description: event_model.description,
+        event_type: event_model.event_type,
+        age_policy: event_model.age_policy,
+        status: event_model.status,
+        terms: event_model.terms,
+        artist: event_model.artist,
+        schedules,
+        pricing_tiers,
+        sales,
+        media,
+        created_at: event_model.created_at,
+        updated_at: event_model.updated_at,
+    })
 }
 
 /// Implementación de producción respaldada por SeaORM y PostgreSQL/MySQL
@@ -58,75 +140,7 @@ impl EventRepository for SeaOrmEventRepository {
             None => return Ok(None),
         };
 
-        // Cargar colecciones anidadas del agregado
-        let schedules = event_model
-            .find_related(event_schedule::Entity)
-            .all(&self.db)
-            .await?
-            .into_iter()
-            .map(|s| EventScheduleDto {
-                id: s.id,
-                starts_at: s.starts_at,
-                ends_at: s.ends_at,
-            })
-            .collect();
-
-        let pricing_tiers = event_model
-            .find_related(event_pricing_tier::Entity)
-            .all(&self.db)
-            .await?
-            .into_iter()
-            .map(|p| EventPricingTierDto {
-                id: p.id,
-                name: p.name,
-                description: p.description,
-                price: p.price,
-                currency: p.currency,
-            })
-            .collect();
-
-        let sales = event_model
-            .find_related(event_sale::Entity)
-            .all(&self.db)
-            .await?
-            .into_iter()
-            .map(|s| EventSaleDto {
-                id: s.id,
-                starts_at: s.starts_at,
-                ends_at: s.ends_at,
-            })
-            .collect();
-
-        let media = event_model
-            .find_related(event_media::Entity)
-            .all(&self.db)
-            .await?
-            .into_iter()
-            .map(|m| EventMediaDto {
-                id: m.id,
-                media_type: m.media_type,
-                url: m.url,
-            })
-            .collect();
-
-        Ok(Some(EventResponseDto {
-            id: event_model.id,
-            organizer_id: event_model.organizer_id,
-            venue_id: event_model.venue_id,
-            name: event_model.name,
-            description: event_model.description,
-            event_type: event_model.event_type,
-            age_policy: event_model.age_policy,
-            status: event_model.status,
-            terms: event_model.terms,
-            artist: event_model.artist,
-            schedules,
-            pricing_tiers,
-            sales,
-            media,
-            created_at: event_model.created_at,
-            updated_at: event_model.updated_at,
-        }))
+        load_event_aggregate(&self.db, event_model).await.map(Some)
     }
 
     async fn find_paginated(
@@ -262,24 +276,80 @@ impl EventRepository for SeaOrmEventRepository {
             created_at: now,
         })
     }
+
+    async fn update_event(
+        &self,
+        id: Uuid,
+        changes: &EventUpdateChanges,
+    ) -> Result<Option<EventResponseDto>, AppError> {
+        let now = chrono::Utc::now();
+        let tx = self.db.begin().await?;
+
+        let event_model = match event::Entity::find_by_id(id).one(&tx).await? {
+            Some(model) => model,
+            None => return Ok(None),
+        };
+
+        let mut event_active: event::ActiveModel = event_model.into();
+        if let Some(ref name) = changes.name {
+            event_active.name = Set(name.clone());
+        }
+        if let Some(ref artist) = changes.artist {
+            event_active.artist = Set(Some(artist.clone()));
+        }
+        if let Some(venue_id) = changes.venue_id {
+            event_active.venue_id = Set(venue_id);
+        }
+        event_active.updated_at = Set(now);
+
+        let updated_event = event_active.update(&tx).await?;
+
+        if let Some((schedule_id, new_starts_at)) = changes.schedule_update {
+            let schedule_model = event_schedule::Entity::find_by_id(schedule_id)
+                .filter(event_schedule::Column::EventId.eq(id))
+                .one(&tx)
+                .await?
+                .ok_or_else(|| {
+                    AppError::UnprocessableEntity(
+                        "Target schedule does not belong to this event".to_string(),
+                    )
+                })?;
+
+            let mut schedule_active: event_schedule::ActiveModel = schedule_model.into();
+            schedule_active.starts_at = Set(new_starts_at);
+            schedule_active.updated_at = Set(now);
+            schedule_active.update(&tx).await?;
+        }
+
+        let aggregate = load_event_aggregate(&tx, updated_event).await?;
+        tx.commit().await?;
+
+        Ok(Some(aggregate))
+    }
 }
 
 /// Implementación en memoria para pruebas unitarias sin dependencias externas
 #[derive(Clone, Default)]
 pub struct MockEventRepository {
     storage: Arc<RwLock<HashMap<Uuid, EventResponseDto>>>,
+    fail_next_update: Arc<AtomicBool>,
 }
 
 impl MockEventRepository {
     pub fn new() -> Self {
         Self {
             storage: Arc::new(RwLock::new(HashMap::new())),
+            fail_next_update: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub async fn insert(&self, event: EventResponseDto) {
         let mut lock = self.storage.write().await;
         lock.insert(event.id, event);
+    }
+
+    pub fn set_fail_next_update(&self, fail: bool) {
+        self.fail_next_update.store(fail, Ordering::SeqCst);
     }
 }
 
@@ -423,5 +493,48 @@ impl EventRepository for MockEventRepository {
             status,
             created_at: now,
         })
+    }
+
+    async fn update_event(
+        &self,
+        id: Uuid,
+        changes: &EventUpdateChanges,
+    ) -> Result<Option<EventResponseDto>, AppError> {
+        if self.fail_next_update.swap(false, Ordering::SeqCst) {
+            return Err(AppError::InternalServerError(
+                "Simulated persistence failure".to_string(),
+            ));
+        }
+
+        let mut lock = self.storage.write().await;
+        let Some(mut updated) = lock.get(&id).cloned() else {
+            return Ok(None);
+        };
+
+        if let Some(ref name) = changes.name {
+            updated.name = name.clone();
+        }
+        if let Some(ref artist) = changes.artist {
+            updated.artist = Some(artist.clone());
+        }
+        if let Some(venue_id) = changes.venue_id {
+            updated.venue_id = venue_id;
+        }
+        if let Some((schedule_id, new_starts_at)) = changes.schedule_update {
+            let Some(schedule) = updated
+                .schedules
+                .iter_mut()
+                .find(|item| item.id == schedule_id)
+            else {
+                return Err(AppError::UnprocessableEntity(
+                    "Target schedule does not belong to this event".to_string(),
+                ));
+            };
+            schedule.starts_at = new_starts_at;
+        }
+
+        updated.updated_at = chrono::Utc::now();
+        lock.insert(id, updated.clone());
+        Ok(Some(updated))
     }
 }
