@@ -68,17 +68,26 @@ impl VenueClient for MockVenueClient {
 /// Comunicacion por HTTP con la VenueAPI
 pub struct HttpVenueClient {
     base_url: String,
+    auth_token: Option<String>,
     client: reqwest::Client,
 }
 
 impl HttpVenueClient {
     pub fn new(base_url: String) -> Self {
+        Self::with_token(base_url, None)
+    }
+
+    pub fn with_token(base_url: String, auth_token: Option<String>) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(3))
             .build()
             .unwrap_or_default();
 
-        Self { base_url, client }
+        Self {
+            base_url,
+            auth_token,
+            client,
+        }
     }
 }
 
@@ -86,7 +95,7 @@ impl HttpVenueClient {
 impl VenueClient for HttpVenueClient {
     async fn verify_venue_exists(&self, venue_id: Uuid) -> Result<bool, AppError> {
         let url = format!(
-            "{}/api/v1/venues/{}",
+            "{}/venues/{}",
             self.base_url.trim_end_matches('/'),
             venue_id
         );
@@ -95,7 +104,12 @@ impl VenueClient for HttpVenueClient {
             url
         );
 
-        match self.client.get(&url).send().await {
+        let mut request = self.client.get(&url);
+        if let Some(ref token) = self.auth_token {
+            request = request.bearer_auth(token);
+        }
+
+        match request.send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     Ok(true)
@@ -103,8 +117,12 @@ impl VenueClient for HttpVenueClient {
                     info!("Recinto {} no encontrado en Venue Service (404)", venue_id);
                     Ok(false)
                 } else {
-                    warn!("Venue Service respondió con status: {}", response.status());
-                    Ok(false)
+                    let status = response.status();
+                    warn!("Venue Service respondió con status inesperado: {}", status);
+                    Err(AppError::InternalServerError(format!(
+                        "Venue Service returned unexpected status: {}",
+                        status
+                    )))
                 }
             }
             Err(err) => {
