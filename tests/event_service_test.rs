@@ -8,7 +8,7 @@ use eventManagement_api::{
     core::error::AppError,
     model::dtos::{
         CreateEventRequestDto, EventMediaDto, EventPaginationQueryDto, EventPricingTierDto,
-        EventResponseDto, EventSaleDto, EventScheduleDto,
+        EventResponseDto, EventSaleDto, EventScheduleDto, UpdateEventRequestDto,
     },
     model::partner::{self, PartnerRole},
     repository::MockEventRepository,
@@ -487,4 +487,394 @@ async fn test_create_event_venue_owner_forbidden() {
         .await
         .unwrap();
     assert_eq!(page.total_items, 0);
+}
+
+fn create_owned_event_with_schedules(
+    id: Uuid,
+    organizer_id: Uuid,
+    venue_id: Uuid,
+    schedule_count: usize,
+) -> EventResponseDto {
+    let base_time = Utc::now() - Duration::days(1);
+    let schedules = (0..schedule_count)
+        .map(|idx| EventScheduleDto {
+            id: Uuid::new_v4(),
+            starts_at: Utc::now() + Duration::days(10 + idx as i64),
+            ends_at: None,
+        })
+        .collect();
+
+    EventResponseDto {
+        id,
+        organizer_id,
+        venue_id,
+        name: "Original Event".to_string(),
+        description: Some("Initial description".to_string()),
+        event_type: "Concert".to_string(),
+        age_policy: "All ages".to_string(),
+        status: "Scheduled".to_string(),
+        terms: None,
+        artist: Some("Original Artist".to_string()),
+        schedules,
+        pricing_tiers: vec![],
+        sales: vec![],
+        media: vec![],
+        created_at: base_time,
+        updated_at: base_time,
+    }
+}
+
+#[tokio::test]
+async fn test_update_event_full_success_preserves_server_fields() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let old_venue = Uuid::new_v4();
+    let new_venue = Uuid::new_v4();
+    let allowed = HashSet::from([new_venue]);
+    let venue_client = Arc::new(MockVenueClient::new_with_venues(allowed));
+
+    let organizer = create_partner(PartnerRole::Organizer);
+    let event_id = Uuid::new_v4();
+    let original = create_owned_event_with_schedules(event_id, organizer.id, old_venue, 1);
+    mock_repo.insert(original.clone()).await;
+
+    let new_date = Utc::now() + Duration::days(60);
+    let service = EventService::new(mock_repo, venue_client);
+
+    let updated = service
+        .update_event(
+            event_id,
+            UpdateEventRequestDto {
+                name: Some("  Updated Event  ".to_string()),
+                artist: Some("  Updated Artist  ".to_string()),
+                date: Some(new_date),
+                schedule_id: None,
+                venue_id: Some(new_venue),
+            },
+            &organizer,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(updated.id, original.id);
+    assert_eq!(updated.organizer_id, original.organizer_id);
+    assert_eq!(updated.status, original.status);
+    assert_eq!(updated.created_at, original.created_at);
+    assert!(updated.updated_at > original.updated_at);
+    assert_eq!(updated.name, "Updated Event");
+    assert_eq!(updated.artist.as_deref(), Some("Updated Artist"));
+    assert_eq!(updated.venue_id, new_venue);
+    assert_eq!(updated.schedules.len(), 1);
+    assert_eq!(updated.schedules[0].id, original.schedules[0].id);
+    assert_eq!(updated.schedules[0].starts_at, new_date);
+}
+
+#[tokio::test]
+async fn test_update_event_partial_metadata_skips_venue_verification() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let unverified_venue = Uuid::new_v4();
+    let venue_client = Arc::new(MockVenueClient::new_with_venues(HashSet::new()));
+
+    let organizer = create_partner(PartnerRole::Organizer);
+    let event_id = Uuid::new_v4();
+    let original = create_owned_event_with_schedules(event_id, organizer.id, unverified_venue, 1);
+    mock_repo.insert(original.clone()).await;
+
+    let service = EventService::new(mock_repo, venue_client);
+
+    let updated = service
+        .update_event(
+            event_id,
+            UpdateEventRequestDto {
+                name: Some("Renamed Only".to_string()),
+                artist: None,
+                date: None,
+                schedule_id: None,
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(updated.name, "Renamed Only");
+    assert_eq!(updated.artist, original.artist);
+    assert_eq!(updated.venue_id, unverified_venue);
+    assert_eq!(updated.schedules, original.schedules);
+
+    let same_venue_updated = service
+        .update_event(
+            event_id,
+            UpdateEventRequestDto {
+                name: None,
+                artist: None,
+                date: None,
+                schedule_id: None,
+                venue_id: Some(unverified_venue),
+            },
+            &organizer,
+        )
+        .await
+        .unwrap();
+    assert_eq!(same_venue_updated.venue_id, unverified_venue);
+}
+
+#[tokio::test]
+async fn test_update_event_role_and_ownership_forbidden() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let venue_client = Arc::new(MockVenueClient::new_permissive());
+
+    let owner_organizer = create_partner(PartnerRole::Organizer);
+    let other_organizer = create_partner(PartnerRole::Organizer);
+    let venue_owner = create_partner(PartnerRole::VenueOwner);
+    let event_id = Uuid::new_v4();
+    let original =
+        create_owned_event_with_schedules(event_id, owner_organizer.id, Uuid::new_v4(), 1);
+    mock_repo.insert(original.clone()).await;
+
+    let service = EventService::new(mock_repo.clone(), venue_client);
+    let request = UpdateEventRequestDto {
+        name: Some("Hijacked".to_string()),
+        artist: None,
+        date: None,
+        schedule_id: None,
+        venue_id: None,
+    };
+
+    let err_role = service
+        .update_event(event_id, request.clone(), &venue_owner)
+        .await
+        .unwrap_err();
+    assert!(matches!(err_role, AppError::Forbidden(_)));
+
+    let err_owner = service
+        .update_event(event_id, request, &other_organizer)
+        .await
+        .unwrap_err();
+    assert!(matches!(err_owner, AppError::Forbidden(_)));
+
+    let persisted = service.get_event_by_id(event_id).await.unwrap();
+    assert_eq!(persisted.name, original.name);
+}
+
+#[tokio::test]
+async fn test_update_event_not_found_and_validation_errors() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let venue_client = Arc::new(MockVenueClient::new_permissive());
+    let organizer = create_partner(PartnerRole::Organizer);
+    let event_id = Uuid::new_v4();
+    let original = create_owned_event_with_schedules(event_id, organizer.id, Uuid::new_v4(), 1);
+    mock_repo.insert(original).await;
+
+    let service = EventService::new(mock_repo, venue_client);
+
+    let missing_err = service
+        .update_event(
+            Uuid::new_v4(),
+            UpdateEventRequestDto {
+                name: Some("Valid".to_string()),
+                artist: None,
+                date: None,
+                schedule_id: None,
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(missing_err, AppError::NotFound(_)));
+
+    let invalid_payloads = [
+        UpdateEventRequestDto {
+            name: None,
+            artist: None,
+            date: None,
+            schedule_id: None,
+            venue_id: None,
+        },
+        UpdateEventRequestDto {
+            name: Some("   ".to_string()),
+            artist: None,
+            date: None,
+            schedule_id: None,
+            venue_id: None,
+        },
+        UpdateEventRequestDto {
+            name: Some("a".repeat(256)),
+            artist: None,
+            date: None,
+            schedule_id: None,
+            venue_id: None,
+        },
+        UpdateEventRequestDto {
+            name: None,
+            artist: Some("".to_string()),
+            date: None,
+            schedule_id: None,
+            venue_id: None,
+        },
+        UpdateEventRequestDto {
+            name: None,
+            artist: None,
+            date: Some(Utc::now() - Duration::hours(1)),
+            schedule_id: None,
+            venue_id: None,
+        },
+        UpdateEventRequestDto {
+            name: None,
+            artist: None,
+            date: None,
+            schedule_id: Some(Uuid::new_v4()),
+            venue_id: None,
+        },
+    ];
+
+    for payload in invalid_payloads {
+        let err = service
+            .update_event(event_id, payload, &organizer)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    }
+}
+
+#[tokio::test]
+async fn test_update_event_explicit_schedule_targeting() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let venue_client = Arc::new(MockVenueClient::new_permissive());
+    let organizer = create_partner(PartnerRole::Organizer);
+    let multi_id = Uuid::new_v4();
+    let multi_event = create_owned_event_with_schedules(multi_id, organizer.id, Uuid::new_v4(), 2);
+    let target_schedule_id = multi_event.schedules[1].id;
+    let sibling_starts_at = multi_event.schedules[0].starts_at;
+    mock_repo.insert(multi_event).await;
+
+    let empty_sched_id = Uuid::new_v4();
+    let empty_sched_event =
+        create_owned_event_with_schedules(empty_sched_id, organizer.id, Uuid::new_v4(), 0);
+    mock_repo.insert(empty_sched_event).await;
+
+    let service = EventService::new(mock_repo, venue_client);
+    let future_date = Utc::now() + Duration::days(90);
+
+    let ambiguous_err = service
+        .update_event(
+            multi_id,
+            UpdateEventRequestDto {
+                name: None,
+                artist: None,
+                date: Some(future_date),
+                schedule_id: None,
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(ambiguous_err, AppError::BadRequest(_)));
+
+    let foreign_err = service
+        .update_event(
+            multi_id,
+            UpdateEventRequestDto {
+                name: None,
+                artist: None,
+                date: Some(future_date),
+                schedule_id: Some(Uuid::new_v4()),
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(foreign_err, AppError::UnprocessableEntity(_)));
+
+    let zero_err = service
+        .update_event(
+            empty_sched_id,
+            UpdateEventRequestDto {
+                name: None,
+                artist: None,
+                date: Some(future_date),
+                schedule_id: None,
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(zero_err, AppError::UnprocessableEntity(_)));
+
+    let updated = service
+        .update_event(
+            multi_id,
+            UpdateEventRequestDto {
+                name: None,
+                artist: None,
+                date: Some(future_date),
+                schedule_id: Some(target_schedule_id),
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(updated.schedules[0].starts_at, sibling_starts_at);
+    assert_eq!(updated.schedules[1].starts_at, future_date);
+}
+
+#[tokio::test]
+async fn test_update_event_invalid_changed_venue_and_persistence_failure() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let valid_venue = Uuid::new_v4();
+    let venue_client = Arc::new(MockVenueClient::new_with_venues(HashSet::from([
+        valid_venue,
+    ])));
+    let organizer = create_partner(PartnerRole::Organizer);
+    let event_id = Uuid::new_v4();
+    let original = create_owned_event_with_schedules(event_id, organizer.id, valid_venue, 1);
+    mock_repo.insert(original.clone()).await;
+
+    let service = EventService::new(mock_repo.clone(), venue_client);
+
+    let venue_err = service
+        .update_event(
+            event_id,
+            UpdateEventRequestDto {
+                name: Some("Will Fail Venue".to_string()),
+                artist: None,
+                date: None,
+                schedule_id: None,
+                venue_id: Some(Uuid::new_v4()),
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(venue_err, AppError::UnprocessableEntity(_)));
+
+    mock_repo.set_fail_next_update(true);
+    let persistence_err = service
+        .update_event(
+            event_id,
+            UpdateEventRequestDto {
+                name: Some("Will Fail Persistence".to_string()),
+                artist: None,
+                date: Some(Utc::now() + Duration::days(30)),
+                schedule_id: None,
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(persistence_err, AppError::InternalServerError(_)));
+
+    let stored = service.get_event_by_id(event_id).await.unwrap();
+    assert_eq!(stored.name, original.name);
+    assert_eq!(stored.venue_id, original.venue_id);
+    assert_eq!(
+        stored.schedules[0].starts_at,
+        original.schedules[0].starts_at
+    );
 }

@@ -606,3 +606,451 @@ async fn test_http_post_event_ignores_body_organizer_id() {
         .unwrap();
     assert_eq!(stored.organizer_id, DEV_ORGANIZER_ID);
 }
+
+fn patch_event_request(uri: &str, body: Body, authorization: Option<String>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("PATCH")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(value) = authorization {
+        builder = builder.header(header::AUTHORIZATION, value);
+    }
+    builder.body(body).unwrap()
+}
+
+fn create_owned_event(
+    event_id: Uuid,
+    organizer_id: Uuid,
+    venue_id: Uuid,
+    schedule_count: usize,
+) -> EventResponseDto {
+    let past_timestamp = Utc::now() - Duration::days(2);
+    let schedules = (0..schedule_count)
+        .map(|idx| EventScheduleDto {
+            id: Uuid::new_v4(),
+            starts_at: Utc::now() + Duration::days(15 + idx as i64),
+            ends_at: None,
+        })
+        .collect();
+
+    EventResponseDto {
+        id: event_id,
+        organizer_id,
+        venue_id,
+        name: "Original Concert".to_string(),
+        description: Some("Original details".to_string()),
+        event_type: "Concert".to_string(),
+        age_policy: "All ages".to_string(),
+        status: "Scheduled".to_string(),
+        terms: None,
+        artist: Some("Original Band".to_string()),
+        schedules,
+        pricing_tiers: vec![],
+        sales: vec![],
+        media: vec![],
+        created_at: past_timestamp,
+        updated_at: past_timestamp,
+    }
+}
+
+#[tokio::test]
+async fn test_http_patch_event_200_ok_and_persists_state() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let old_venue = Uuid::new_v4();
+    let new_venue = Uuid::new_v4();
+    let venue_client = Arc::new(MockVenueClient::new_with_venues(HashSet::from([new_venue])));
+
+    let event_id = Uuid::new_v4();
+    let original = create_owned_event(event_id, DEV_ORGANIZER_ID, old_venue, 1);
+    mock_repo.insert(original.clone()).await;
+
+    let app = create_test_app(mock_repo, venue_client);
+    let next_date = Utc::now() + Duration::days(60);
+    let payload = serde_json::json!({
+        "name": "  Updated Concert  ",
+        "artist": "Updated Band",
+        "date": next_date.to_rfc3339(),
+        "venueId": new_venue.to_string(),
+    });
+
+    let response = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from(serde_json::to_vec(&payload).unwrap()),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let updated: EventResponseDto = serde_json::from_slice(&body).unwrap();
+    assert_eq!(updated.id, original.id);
+    assert_eq!(updated.organizer_id, DEV_ORGANIZER_ID);
+    assert_eq!(updated.status, "Scheduled");
+    assert_eq!(updated.created_at, original.created_at);
+    assert!(updated.updated_at > original.updated_at);
+    assert_eq!(updated.name, "Updated Concert");
+    assert_eq!(updated.artist.as_deref(), Some("Updated Band"));
+    assert_eq!(updated.venue_id, new_venue);
+    assert_eq!(updated.schedules[0].starts_at, next_date);
+
+    let detail_response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/events/{}", event_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail_response.status(), StatusCode::OK);
+    let detail_body = to_bytes(detail_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let persisted: EventResponseDto = serde_json::from_slice(&detail_body).unwrap();
+    assert_eq!(persisted.name, "Updated Concert");
+    assert_eq!(persisted.venue_id, new_venue);
+}
+
+#[tokio::test]
+async fn test_http_patch_event_alias_route_200_ok() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let venue_client = Arc::new(MockVenueClient::new_permissive());
+    let event_id = Uuid::new_v4();
+    mock_repo
+        .insert(create_owned_event(
+            event_id,
+            DEV_ORGANIZER_ID,
+            Uuid::new_v4(),
+            1,
+        ))
+        .await;
+
+    let app = create_test_app(mock_repo, venue_client);
+    let payload = serde_json::json!({ "name": "Alias Route Update" });
+
+    let response = app
+        .oneshot(patch_event_request(
+            &format!("/events/{}", event_id),
+            Body::from(serde_json::to_vec(&payload).unwrap()),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_http_patch_event_auth_401() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let event_id = Uuid::new_v4();
+    mock_repo
+        .insert(create_owned_event(
+            event_id,
+            DEV_ORGANIZER_ID,
+            Uuid::new_v4(),
+            1,
+        ))
+        .await;
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+    let body = serde_json::to_vec(&serde_json::json!({ "name": "Changed" })).unwrap();
+
+    for auth in [
+        None,
+        Some("Basic dXNlcjpwYXNz".to_string()),
+        Some("Bearer invalid-token".to_string()),
+        Some(bearer(Uuid::new_v4())),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(patch_event_request(
+                &format!("/api/v1/events/{}", event_id),
+                Body::from(body.clone()),
+                auth,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
+async fn test_http_patch_event_ownership_and_role_403() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let foreign_organizer_event_id = Uuid::new_v4();
+    mock_repo
+        .insert(create_owned_event(
+            foreign_organizer_event_id,
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            1,
+        ))
+        .await;
+    let owned_event_id = Uuid::new_v4();
+    mock_repo
+        .insert(create_owned_event(
+            owned_event_id,
+            DEV_ORGANIZER_ID,
+            Uuid::new_v4(),
+            1,
+        ))
+        .await;
+
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+    let payload = serde_json::to_vec(&serde_json::json!({ "name": "Forbidden Edit" })).unwrap();
+
+    let wrong_role = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", owned_event_id),
+            Body::from(payload.clone()),
+            Some(bearer(DEV_VENUE_OWNER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(wrong_role.status(), StatusCode::FORBIDDEN);
+
+    let wrong_owner = app
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", foreign_organizer_event_id),
+            Body::from(payload),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(wrong_owner.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_http_patch_event_404_not_found() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+    let payload = serde_json::to_vec(&serde_json::json!({ "name": "Ghost Event" })).unwrap();
+
+    let response = app
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", Uuid::new_v4()),
+            Body::from(payload),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_http_patch_event_rejects_server_owned_unknown_and_invalid_payloads_400() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let event_id = Uuid::new_v4();
+    mock_repo
+        .insert(create_owned_event(
+            event_id,
+            DEV_ORGANIZER_ID,
+            Uuid::new_v4(),
+            1,
+        ))
+        .await;
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let server_owned_payloads = [
+        serde_json::json!({ "id": Uuid::new_v4() }),
+        serde_json::json!({ "organizer_id": Uuid::new_v4() }),
+        serde_json::json!({ "organizerId": Uuid::new_v4() }),
+        serde_json::json!({ "status": "Cancelled" }),
+        serde_json::json!({ "created_at": Utc::now().to_rfc3339() }),
+        serde_json::json!({ "updated_at": Utc::now().to_rfc3339() }),
+        serde_json::json!({ "version": 99 }),
+        serde_json::json!({ "published_at": Utc::now().to_rfc3339() }),
+        serde_json::json!({ "unexpected_field": "nope" }),
+        serde_json::json!({}),
+        serde_json::json!({ "name": "   " }),
+        serde_json::json!({ "date": (Utc::now() - Duration::days(1)).to_rfc3339() }),
+    ];
+
+    for payload in server_owned_payloads {
+        let response = app
+            .clone()
+            .oneshot(patch_event_request(
+                &format!("/api/v1/events/{}", event_id),
+                Body::from(serde_json::to_vec(&payload).unwrap()),
+                Some(bearer(DEV_ORGANIZER_ID)),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{payload}");
+    }
+
+    let bad_json = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from("{not-json"),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(bad_json.status(), StatusCode::BAD_REQUEST);
+
+    let bad_uuid = app
+        .oneshot(patch_event_request(
+            "/api/v1/events/not-a-uuid",
+            Body::from(r#"{"name":"Test"}"#),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(bad_uuid.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_http_patch_event_schedule_targeting_and_venue_422() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let valid_venue = Uuid::new_v4();
+    let venue_client = Arc::new(MockVenueClient::new_with_venues(HashSet::from([
+        valid_venue,
+    ])));
+
+    let event_id = Uuid::new_v4();
+    let multi = create_owned_event(event_id, DEV_ORGANIZER_ID, valid_venue, 2);
+    let target_schedule_id = multi.schedules[0].id;
+    let untouched_schedule_time = multi.schedules[1].starts_at;
+    mock_repo.insert(multi).await;
+
+    let app = create_test_app(mock_repo, venue_client);
+    let next_date = Utc::now() + Duration::days(40);
+
+    let missing_target = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from(
+                serde_json::to_vec(&serde_json::json!({ "date": next_date.to_rfc3339() })).unwrap(),
+            ),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(missing_target.status(), StatusCode::BAD_REQUEST);
+
+    let wrong_target = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "schedule_id": Uuid::new_v4(),
+                    "date": next_date.to_rfc3339()
+                }))
+                .unwrap(),
+            ),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(wrong_target.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let invalid_venue = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "venue_id": Uuid::new_v4()
+                }))
+                .unwrap(),
+            ),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_venue.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let valid_targeted = app
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "schedule_id": target_schedule_id,
+                    "date": next_date.to_rfc3339()
+                }))
+                .unwrap(),
+            ),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(valid_targeted.status(), StatusCode::OK);
+    let body = to_bytes(valid_targeted.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let updated: EventResponseDto = serde_json::from_slice(&body).unwrap();
+    assert_eq!(updated.schedules[0].starts_at, next_date);
+    assert_eq!(updated.schedules[1].starts_at, untouched_schedule_time);
+}
+
+#[tokio::test]
+async fn test_http_patch_event_persistence_failure_500() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let event_id = Uuid::new_v4();
+    let original = create_owned_event(event_id, DEV_ORGANIZER_ID, Uuid::new_v4(), 1);
+    mock_repo.insert(original.clone()).await;
+    mock_repo.set_fail_next_update(true);
+
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+    let response = app
+        .clone()
+        .oneshot(patch_event_request(
+            &format!("/api/v1/events/{}", event_id),
+            Body::from(r#"{"name":"Rolled Back"}"#),
+            Some(bearer(DEV_ORGANIZER_ID)),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(error_message(response).await, "Internal server error");
+
+    let detail = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/events/{}", event_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let detail_body = to_bytes(detail.into_body(), usize::MAX).await.unwrap();
+    let persisted: EventResponseDto = serde_json::from_slice(&detail_body).unwrap();
+    assert_eq!(persisted.name, original.name);
+}
+
+#[tokio::test]
+async fn test_http_openapi_includes_patch_event() {
+    let app = create_test_app(
+        Arc::new(MockEventRepository::new()),
+        Arc::new(MockVenueClient::new_permissive()),
+    );
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api-docs/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let spec: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(spec["paths"]["/api/v1/events/{id}"]["patch"].is_object());
+    assert_eq!(
+        spec["paths"]["/api/v1/events/{id}"]["patch"]["security"][0]["bearer_auth"],
+        serde_json::json!([])
+    );
+    assert!(spec["components"]["schemas"]["UpdateEventRequestDto"].is_object());
+}
