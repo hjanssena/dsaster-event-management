@@ -71,6 +71,6 @@ Each task is one commit, in the message given. Each task's tests must pass befor
 
 ## 7. Integration checks
 
-- [ ] 7.1 Run `cargo fmt --all -- --check`, `cargo lint` and `cargo test` with `event-db` running and `TEST_DATABASE_URL` set. Run `openspec validate tmp01-foundation --strict`. Confirm `openapi.yml` matches `cargo run --bin generate_openapi` output with no diff, and that only the files listed in proposal.md (Impact) changed.
+- [x] 7.1 Run `cargo fmt --all -- --check`, `cargo lint` and `cargo test` with `event-db` running and `TEST_DATABASE_URL` set. Run `openspec validate tmp01-foundation --strict`. Confirm `openapi.yml` matches `cargo run --bin generate_openapi` output with no diff, and that only the files listed in proposal.md (Impact) changed.
   - Record the results in this change folder and mark the tasks done.
   - Commit `chore(TMP01): record foundation validation`.
