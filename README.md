@@ -67,7 +67,7 @@ docker compose up -d
 - **API Brief (for Fan/Organizer Frontends, Booking & Search teams):** [docs/event-propagation/contract-brief.md](docs/event-propagation/contract-brief.md)
 - **Target Service Contract (HTTP & Kafka `events.lifecycle`):** [docs/event-propagation/contract-event-service.md](docs/event-propagation/contract-event-service.md)
 - **Capabilities & Design (C1–C6):** [docs/event-propagation/capabilities-and-design-event-propagation.md](docs/event-propagation/capabilities-and-design-event-propagation.md)
-- **Architecture Decision Records (ADR-001 to ADR-008):** [docs/event-propagation/adrs-event-propagation.md](docs/event-propagation/adrs-event-propagation.md)
+- **Architecture Decision Records (ADR-001 to ADR-011):** [docs/event-propagation/adrs-event-propagation.md](docs/event-propagation/adrs-event-propagation.md)
 - **System Architecture, Data Model & Component Diagram:** [docs/architecture/architecture.md](docs/architecture/architecture.md), [docs/architecture/data-model.md](docs/architecture/data-model.md), [docs/component_diagram.md](docs/component_diagram.md)
 - **Local Development & Branching Process (Spanish):** [docs/process/development.md](docs/process/development.md), [docs/process/branching.md](docs/process/branching.md)
 

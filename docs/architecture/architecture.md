@@ -10,7 +10,7 @@ It follows a strict **Layered Architecture** where each layer only depends on tr
 
 - **Rust (edition 2024)** & **Tokio** async runtime
 - **Axum 0.7** for HTTP routing, extractors, and error responses
-- **Tower / tower-http** for HTTP middleware (CORS, tracing, timeouts)
+- **Tower / tower-http** for HTTP middleware (CORS, tracing). The incoming request timeout is an Axum middleware over `tokio::time::timeout` that answers `503` with `Retry-After` (ADR-008)
 - **SeaORM 1.0** on **PostgreSQL** (`sqlx-postgres`, `runtime-tokio-rustls`) with startup migrations
 - **reqwest** for outbound HTTP calls to Venue Management Service
 - **utoipa & utoipa-swagger-ui** for code-generated OpenAPI 3.0 (`openapi.yml` and `/swagger-ui`)
@@ -23,7 +23,7 @@ This document explains the service's code structure and runtime architecture. Fo
 
 - **Capabilities & Design (C1–C6):** [capabilities-and-design-event-propagation.md](../event-propagation/capabilities-and-design-event-propagation.md)
 - **Target Service Contract (HTTP & Kafka):** [contract-event-service.md](../event-propagation/contract-event-service.md) (short consumer guide: [contract-brief.md](../event-propagation/contract-brief.md))
-- **Architecture Decision Records (ADR-001 to ADR-008):** [adrs-event-propagation.md](../event-propagation/adrs-event-propagation.md)
+- **Architecture Decision Records (ADR-001 to ADR-011):** [adrs-event-propagation.md](../event-propagation/adrs-event-propagation.md)
 - **Data Model (ER Diagram & Schema Spec):** [data-model.md](data-model.md)
 - **Component Diagram:** [component_diagram.md](../component_diagram.md)
 - **Team Process (Spanish):** [development.md](../process/development.md), [branching.md](../process/branching.md)
@@ -94,15 +94,15 @@ Event Management owns a single **PostgreSQL** database (`event_store`). It never
    - Transactional outbox (`outbox` table, ADR-004) and `idempotency_keys` (ADR-008) live in the same database so state changes and messages commit atomically.
 2. **Authentication (Local Verification — ADR-007)**
    - Event Service **does not call Auth Service at runtime**. Tokens are `HS256` JWTs verified locally using the shared `JWT_SECRET` (`exp`, UUID `sub`, case-insensitive `role = ORGANIZER`).
-   - In local development and automated tests (`MOCK_AUTH=true`), `MockTokenVerifier` accepts `mock:<partner-uuid>` tokens.
+   - There are no mock tokens (ADR-007, amended 2026-11-27): local development and tests also use `HS256` tokens, signed with their own `JWT_SECRET`. The current code still has `MockTokenVerifier` until the verifier is replaced.
 3. **Venue Management Service (Outbound HTTP — C2, ADR-001, ADR-008)**
    - Called via `VenueClient` (`GET /venues/{id}` forwarding the organizer's bearer token) to verify venue existence and snapshot zone IDs/names.
    - Protected by per-attempt timeout (`VENUE_SERVICE_TIMEOUT_MS`), exponential backoff with full jitter (`RETRY_*`), and an in-memory circuit breaker (`CIRCUIT_BREAKER_*`). Unavailability or config mismatch (`401`/`403`) returns `503 Service Unavailable` with `Retry-After`.
-   - Replaced by `MockVenueClient` when `MOCK_VENUE_SERVICE=true`.
+   - Replaced by `MockVenueClient` when `MOCK_VENUE_SERVICE=true`, the only mock kept until Venue Service exposes zones (ADR-011).
 4. **Event Propagation via Kafka (Planned — C6, ADR-003, ADR-004)**
    - A background publish job polls every `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` for `Scheduled` events that reached `sale_starts_at - EVENT_VISIBILITY_LEAD_DAYS`, marks `published_at`, and inserts `EventPublished` into the outbox.
    - Accepted edits to published events increment `version` and write `EventUpdated` to the outbox in the same transaction.
-   - An outbox relay publishes unsent rows in order to Kafka topic `events.lifecycle` (keyed by `event_id`, idempotent producer, `acks=all`) for **Booking Service** and **Search Service**.
+   - An outbox relay publishes unsent rows in order to Kafka topic `events.lifecycle` (keyed by `event_id`, idempotent producer, `acks=all`) for **Booking Service** and **Search Service**. Only one instance's relay sends at a time: each relay run holds a transaction-level Postgres advisory lock (ADR-009).
 
 ---
 

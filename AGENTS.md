@@ -43,10 +43,10 @@ openspec/          # Specs and change proposals (see Spec-driven workflow)
 | Run the service | `cargo run` (needs `.env`, copy from `.env.example`) |
 | Format | `cargo fmt --all` |
 | Lint (CI) | `cargo fmt --all -- --check && cargo lint` (or `npm run lint`) |
-| Test (CI) | `cargo test` |
+| Test (CI) | `cargo test` (needs `event-db` running; see ADR-011) |
 | Regenerate the API contract | `cargo run --bin generate_openapi` |
 
-`cargo lint` is an alias in `.cargo/config.toml` for `clippy --locked --all-targets -- -D warnings`: any warning fails. Tests use the in-memory mocks and need no database.
+`cargo lint` is an alias in `.cargo/config.toml` for `clippy --locked --all-targets -- -D warnings`: any warning fails. Tests need PostgreSQL (`docker compose up -d event-db`) and, for the outbox relay, Kafka (ADR-011). Today's tests still run on in-memory mocks until each area is rewritten.
 
 A task is done only when the format check, `cargo lint` and `cargo test` all pass. CI (`.github/workflows/validation.yml`) runs the same commands on every PR to `main` and `testing`.
 
@@ -56,12 +56,14 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 |---|---|---|---|
 | `DATABASE_URL` | required | Implemented | Postgres connection |
 | `SERVER_ADDR` | `0.0.0.0:3000` | Implemented | Bind address |
-| `MOCK_AUTH` | `true` | Implemented | Local dev/tests only: mock tokens & dev partners instead of `HS256` JWT (ADR-007) |
-| `MOCK_VENUE_SERVICE` | `true` | Implemented | `MockVenueClient` instead of calling Venue Service |
+| `MOCK_AUTH` | `true` | Implemented, to be removed (ADR-007) | Mock tokens & dev partners. Removed with the `HS256` verifier, with no replacement |
+| `MOCK_VENUE_SERVICE` | `true` | Implemented | `MockVenueClient` instead of calling Venue Service. The only mock left (ADR-011), until Venue Service exposes zones |
 | `VENUE_SERVICE_URL` | `http://localhost:3001` | Implemented | Venue Service base URL |
-| `JWT_SECRET` | required when `MOCK_AUTH=false` | Planned (ADR-007) | Shared `HS256` secret for local JWT verification (never commit) |
+| `JWT_SECRET` | required | Planned (ADR-007) | `HS256` secret for local JWT verification, in every environment including local and tests. Shared with Auth Service in shared environments (never commit a real one) |
+| `TEST_DATABASE_URL` | required by tests | Planned (ADR-011) | Postgres server the tests create their databases on. Tests only, not read by `src/config.rs` |
 | `EVENT_VISIBILITY_LEAD_DAYS` | `10` | Planned (ADR-006) | Days before `sale_starts_at` when an event is published (C6) |
 | `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` | `60` | Planned (ADR-006) | Scheduled publish job interval (ADR-003) |
+| `EVENT_PUBLISH_JOB_BATCH_SIZE` | `100` | Planned (ADR-006) | Events the publish job publishes per run (ADR-003) |
 | `OUTBOX_RELAY_INTERVAL_MS` | `1000` | Planned (ADR-006) | Outbox relay polling interval (ADR-004) |
 | `OUTBOX_RELAY_BATCH_SIZE` | `100` | Planned (ADR-006) | Outbox rows processed per relay read (ADR-004) |
 | `EVENTS_PAGE_SIZE_DEFAULT` | `10` | Planned (ADR-006) | Default `per_page` when omitted |
@@ -69,6 +71,7 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 | `KAFKA_BROKERS` | `localhost:9092` | Planned (ADR-006) | Kafka bootstrap servers |
 | `KAFKA_EVENTS_TOPIC` | `events.lifecycle` | Planned (ADR-006) | Topic for `EventPublished` and `EventUpdated` (C6) |
 | `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Planned (ADR-008) | Total time for one incoming HTTP request |
+| `HTTP_RETRY_AFTER_SECONDS` | `2` | Planned (ADR-008) | `Retry-After` on a `503` when no better value is known |
 | `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Planned (ADR-008) | Per-attempt timeout calling Venue Service |
 | `RETRY_MAX_ATTEMPTS` | `3` | Planned (ADR-008) | Total attempts per outgoing call, including the first |
 | `RETRY_BASE_DELAY_MS` | `100` | Planned (ADR-008) | Base delay for exponential backoff with full jitter |
@@ -83,13 +86,14 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 
 ## Code conventions
 
-- **Dependencies are traits.** Services take `Arc<dyn Trait>` (`EventRepository`, `PartnerRepository`, `VenueClient`, `TokenVerifier`). Every new external dependency gets a trait, a real implementation and a `Mock*` implementation, and `main.rs` selects between them.
-- **Errors.** Return `AppError` from services and handlers. Use the variant that matches the status code (`BadRequest` 400 for malformed requests, server-owned fields or missing `Idempotency-Key`; `Unauthorized` 401; `Forbidden` 403; `NotFound` 404; `Conflict` 409 for event locked or in-progress idempotency key; `UnprocessableEntity` 422 for domain rule violations; `ServiceUnavailable` 503 with `Retry-After` for timeouts or unavailable dependencies). Never put database or internal error details in a response; `DatabaseError` and `InternalServerError` already log them and return a generic message.
+- **Dependencies are traits.** Services take `Arc<dyn Trait>` for services outside Event Service (`VenueClient`, `TokenVerifier`, the Kafka producer). No new `Mock*` implementations (ADR-011): tests run against real Postgres, real tokens and real Kafka. The only mock kept is `MockVenueClient`, until Venue Service exposes zones. Today's `MockEventRepository`, `MockPartnerRepository` and `MockTokenVerifier` are removed when their area is rewritten.
+- **Errors.** Return `AppError` from services and handlers. Use the variant that matches the status code (`BadRequest` 400 for malformed requests, server-owned fields or missing `Idempotency-Key`; `Unauthorized` 401; `Forbidden` 403; `NotFound` 404; `Conflict` 409 for event locked; `UnprocessableEntity` 422 for domain rule violations; `ServiceUnavailable` 503 for timeouts or unavailable dependencies; leave its `Retry-After` empty unless you know a better value, such as an open breaker's remaining time, and the timeout middleware adds `HTTP_RETRY_AFTER_SECONDS`). Never put database or internal error details in a response; `DatabaseError` and `InternalServerError` already log them and return a generic message.
+- **Request extractors** (ADR-010). Handlers take `ApiJson`, `ApiPath` and `ApiQuery` from `src/api/extract.rs`, never Axum's `Json`, `Path` or `Query`, so every rejection is a JSON `400`. Request times are `RequestTime` strings parsed in the service: no offset gets `422`, and anything else that is not RFC 3339 gets `400`.
 - **Validation** lives in the service layer, not in handlers. Clamp pagination (`page >= 1`, `per_page` between `1` and `EVENTS_PAGE_SIZE_MAX`, defaulting to `EVENTS_PAGE_SIZE_DEFAULT`) the way `EventService::get_events` does.
-- **Auth.** Protected endpoints take the `AuthenticatedPartner` extractor from `src/api/auth.rs` and check the partner's role (`ORGANIZER`, case-insensitive) and ownership in the service. Per ADR-007, Auth Service issues `HS256` JWTs (`sub`, `role`, `iat`, `exp`) verified locally with `JWT_SECRET` (no runtime call to Auth Service); `mock:<partner-uuid>` remains wired for local development and tests (`MOCK_AUTH=true`) until `MockTokenVerifier` is replaced.
+- **Auth.** Protected endpoints take the `AuthenticatedPartner` extractor from `src/api/auth.rs` and check the partner's role (`ORGANIZER`, case-insensitive) and ownership in the service. Public endpoints treat a missing or invalid token as anonymous; only the owner can read an unpublished event. Per ADR-007, Auth Service issues `HS256` JWTs (`sub`, `role`, `iat`, `exp`) verified locally with `JWT_SECRET` (no runtime call to Auth Service); `mock:<partner-uuid>` remains wired for local development and tests (`MOCK_AUTH=true`) until `MockTokenVerifier` is replaced.
 - **Never trust the client.** Identity, role and ownership come only from the token the service verifies, never from a body, query or header field. Fields the server owns (`id`, `organizer_id`, `status`, `version`, `published_at`, `created_at`, `updated_at`, zone `name`) are rejected with 400 if a request sends them. Time checks use the server or database clock. See ADR-007 in `docs/event-propagation/adrs-event-propagation.md`.
 - **No hardcoded days, durations or limits.** Every one is an environment variable read in `src/config.rs`, with its unit in the name (`_DAYS`, `_SECONDS`, `_MS`). Add it to ADR-006, `.env.example` and the table above. Domain rules (price > 0, date order) stay in code.
-- **Resiliency on every call** (ADR-008). Outgoing calls have a per-attempt timeout, retries with exponential backoff and jitter on connection errors, timeouts, 429 and 5xx, and a circuit breaker per service; an unavailable dependency returns `503` with `Retry-After`, never `500` or `401`. Incoming requests are cut at `HTTP_REQUEST_TIMEOUT_MS`. `POST` endpoints that create something require an `Idempotency-Key`; other edits must be safe to repeat.
+- **Resiliency on every call** (ADR-008). Outgoing calls have a per-attempt timeout, retries with exponential backoff and jitter on connection errors, timeouts, 429 and 5xx, and a circuit breaker per service; an unavailable dependency returns `503` with `Retry-After`, never `500` or `401`. Incoming requests are cut at `HTTP_REQUEST_TIMEOUT_MS` by an Axum middleware that answers `503` (not tower-http's `TimeoutLayer`, which answers `408`). `POST` endpoints that create something require an `Idempotency-Key`; other edits must be safe to repeat.
 - **Money is an integer in thousandths of a US dollar** (`1000` = $1.00, `65500` = $65.50): `i64` in Rust, `bigint` in Postgres, a JSON integer in the API and Kafka. Never `f64`, `Decimal` or a string. See ADR-005.
 - **Migrations.** Add a new file `src/migration/mYYYYMMDD_NNNNNN_<description>.rs` and register it in `src/migration/mod.rs`. Never edit a migration that is already merged.
 - **Routes** are mounted under `/api/v1/events`. `/events` is a compatibility alias; don't add new routes only to the alias.
@@ -107,8 +111,12 @@ Swagger UI is served at `/swagger-ui` and the JSON at `/api-docs/openapi.json`.
 
 ## Testing
 
-- API tests go in `tests/event_api_test.rs`. Build the router with `create_test_app` and the mock repository and clients, then send requests with `tower::ServiceExt::oneshot`.
-- Service tests go in `tests/event_service_test.rs` and call `EventService` with mocks.
+- Tests run against real PostgreSQL (ADR-011). Start it with `docker compose up -d event-db` and set `TEST_DATABASE_URL`. The harness in `tests/common` migrates a template database once and gives each test its own copy, so tests are isolated and run in parallel.
+- Protected endpoints get real `HS256` tokens signed with the test secret by the `tests/common` helper. Use its expired, wrong-secret and wrong-algorithm tokens for `401` tests.
+- Time comes from real clocks: set times relative to now, and write a past `sale_starts_at` straight into the database to test a locked event.
+- API tests go in `tests/event_api_test.rs`. Build the router with `create_test_app` and the real repository, then send requests with `tower::ServiceExt::oneshot`.
+- Service tests go in `tests/event_service_test.rs` and call `EventService` against the test database.
+- Today's tests still use the in-memory mocks; they move to the database as each area is rewritten.
 - Every new behavior and every error status code an endpoint can return needs a test.
 
 ## Branches, commits and PRs
