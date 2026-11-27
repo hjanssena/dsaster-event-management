@@ -52,7 +52,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
 
 ## 5. Request timeout
 
-- [ ] 5.1 Add `request_guard`, `apply` and `request_deadline` in `src/api/middleware.rs`, and `api::build_router` (design §5). Use `build_router` in `main.rs` and in `create_test_app`.
+- [x] 5.1 Add `request_guard`, `apply` and `request_deadline` in `src/api/middleware.rs`, and `api::build_router` (design §5). Use `build_router` in `main.rs` and in `create_test_app`.
   - Add `AGENTS.md` layout lines for `middleware.rs` and `db.rs`, and move `HTTP_REQUEST_TIMEOUT_MS`/`HTTP_RETRY_AFTER_SECONDS` to Implemented.
   - Verify with tests for every `request-timeout` scenario, using a test router wrapped by `apply`:
     - a slow handler gives `503` with the JSON body and `Retry-After` set to the configured value

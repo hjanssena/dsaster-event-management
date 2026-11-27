@@ -2,7 +2,6 @@ use axum::{
     Router,
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
-    routing::get,
 };
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
@@ -13,11 +12,11 @@ use uuid::Uuid;
 
 use eventManagement_api::{
     AppState, api,
+    config::HttpConfig,
     model::dtos::{
         EventConfirmationDto, EventMediaDto, EventPricingTierDto, EventResponseDto, EventSaleDto,
         EventScheduleDto, PaginatedEventSummaryResponse,
     },
-    openapi,
     repository::{
         DEV_ORGANIZER_ID, DEV_VENUE_OWNER_ID, MockEventRepository, MockPartnerRepository,
     },
@@ -41,12 +40,13 @@ fn create_test_app(
         search_db: None,
     };
 
-    Router::new()
-        .merge(openapi::swagger_ui())
-        .route("/health", get(api::health_api::health_check))
-        .nest("/api/v1/events", api::event_api::routes())
-        .nest("/events", api::event_api::routes())
-        .with_state(state)
+    api::build_router(
+        state,
+        &HttpConfig {
+            request_timeout: std::time::Duration::from_secs(10),
+            retry_after_seconds: 2,
+        },
+    )
 }
 
 fn bearer(partner_id: Uuid) -> String {

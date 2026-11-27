@@ -5,14 +5,23 @@ mod common;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use axum::{http::StatusCode, response::IntoResponse};
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    extract::State,
+    http::{Request, StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::get,
+};
 use sea_orm::{
     ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement, TransactionTrait,
 };
+use tower::ServiceExt;
 
 use common::db::{TestDb, admin, admin_url_from, database_exists, url_for_database};
 use eventManagement_api::{
-    config::DbConfig,
+    api::middleware::{apply, request_deadline},
+    config::{DbConfig, HttpConfig},
     core::error::AppError,
     db,
     migration::{Migrator, MigratorTrait},
@@ -241,4 +250,199 @@ async fn unreachable_database_is_503() {
         .await
         .expect_err("nothing listens on that port");
     assert_eq!(status_of(err), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+// ==================== Request timeout (ADR-008) ====================
+
+const TIMEOUT_MS: u64 = 150;
+const DEFAULT_RETRY_AFTER: u64 = 7;
+
+fn guard_config() -> HttpConfig {
+    HttpConfig {
+        request_timeout: Duration::from_millis(TIMEOUT_MS),
+        retry_after_seconds: DEFAULT_RETRY_AFTER,
+    }
+}
+
+async fn call(router: Router, uri: &str) -> Response {
+    router
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
+fn retry_after(response: &Response) -> Option<String> {
+    response
+        .headers()
+        .get(header::RETRY_AFTER)
+        .map(|v| v.to_str().unwrap().to_string())
+}
+
+async fn json_body(response: Response) -> serde_json::Value {
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+fn guarded(router: Router) -> Router {
+    apply(router, &guard_config())
+}
+
+#[tokio::test]
+async fn slow_request_is_cut_with_503_json_and_retry_after() {
+    let router = guarded(Router::new().route(
+        "/slow",
+        get(|| async {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            "too late"
+        }),
+    ));
+
+    let started = std::time::Instant::now();
+    let response = call(router, "/slow").await;
+    let elapsed = started.elapsed();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        retry_after(&response).as_deref(),
+        Some(DEFAULT_RETRY_AFTER.to_string().as_str())
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+    assert!(json_body(response).await["error"].is_string());
+    assert!(
+        elapsed < Duration::from_millis(TIMEOUT_MS + 500),
+        "answered after {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn fast_request_is_unchanged() {
+    let router = guarded(Router::new().route("/fast", get(|| async { "ok" })));
+    let response = call(router, "/fast").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(retry_after(&response), None);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&body[..], b"ok");
+}
+
+#[tokio::test]
+async fn timed_out_request_saves_nothing_from_its_transaction() {
+    let test_db = TestDb::new().await;
+    test_db
+        .conn
+        .execute_unprepared("CREATE TABLE probe (id int)")
+        .await
+        .unwrap();
+
+    async fn insert_then_stall(State(conn): State<DatabaseConnection>) -> &'static str {
+        let tx = conn.begin().await.unwrap();
+        tx.execute_unprepared("INSERT INTO probe VALUES (1)")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        tx.commit().await.unwrap();
+        "committed"
+    }
+
+    let router = guarded(
+        Router::new()
+            .route("/write", get(insert_then_stall))
+            .with_state(test_db.conn.clone()),
+    );
+    let response = call(router, "/write").await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    // Wait past the point where the handler would have committed.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(count(&test_db, "SELECT COUNT(*) FROM probe").await, 0);
+}
+
+#[tokio::test]
+async fn service_unavailable_without_retry_after_gets_the_default() {
+    let router = guarded(Router::new().route(
+        "/down",
+        get(|| async { AppError::service_unavailable("dependency down") }),
+    ));
+    let response = call(router, "/down").await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        retry_after(&response).as_deref(),
+        Some(DEFAULT_RETRY_AFTER.to_string().as_str())
+    );
+}
+
+#[tokio::test]
+async fn service_unavailable_keeps_its_own_retry_after() {
+    let router = guarded(Router::new().route(
+        "/breaker",
+        get(|| async {
+            AppError::ServiceUnavailable {
+                message: "breaker open".into(),
+                retry_after: Some(12),
+            }
+        }),
+    ));
+    let response = call(router, "/breaker").await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(retry_after(&response).as_deref(), Some("12"));
+}
+
+#[tokio::test]
+async fn request_deadline_is_available_inside_a_request_only() {
+    assert_eq!(request_deadline(), None);
+
+    let router = guarded(Router::new().route(
+        "/deadline",
+        get(|| async {
+            let deadline = request_deadline().expect("deadline inside a request");
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            left.as_millis().to_string()
+        }),
+    ));
+    let response = call(router, "/deadline").await;
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let left_ms: u64 = std::str::from_utf8(&body).unwrap().parse().unwrap();
+
+    assert!(left_ms > 0 && left_ms <= TIMEOUT_MS, "{left_ms} ms left");
+}
+
+#[tokio::test]
+async fn database_unavailable_reaches_the_client_as_503_with_default_retry_after() {
+    // http-errors "Unknown wait" and database-sessions "Statement too slow", end to end.
+    let test_db = TestDb::new().await;
+    let conn = db::connect(test_db.url(), &db_config(3_000, 100))
+        .await
+        .unwrap();
+
+    async fn slow_query(State(conn): State<DatabaseConnection>) -> Result<&'static str, AppError> {
+        conn.execute_unprepared("SELECT pg_sleep(2)").await?;
+        Ok("done")
+    }
+
+    let router = apply(
+        Router::new()
+            .route("/query", get(slow_query))
+            .with_state(conn.clone()),
+        &HttpConfig {
+            request_timeout: Duration::from_secs(5),
+            retry_after_seconds: DEFAULT_RETRY_AFTER,
+        },
+    );
+    let response = call(router, "/query").await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        retry_after(&response).as_deref(),
+        Some(DEFAULT_RETRY_AFTER.to_string().as_str())
+    );
+    assert_eq!(
+        json_body(response).await["error"],
+        "Service temporarily unavailable"
+    );
+    conn.close().await.unwrap();
 }

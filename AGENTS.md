@@ -20,13 +20,15 @@ Strict layered architecture. Each layer only calls the one below it.
 
 ```text
 src/
-├── main.rs        # Wiring: config, DB, migrations, mock/real selection, router
+├── main.rs        # Wiring: config, DB, migrations, mock/real selection, api::build_router
 ├── lib.rs         # AppState and module exports
 ├── config.rs      # AppConfig::from_env(), the only place that reads env vars
 ├── db.rs          # db::connect: pool acquire timeout, UTC sessions, statement_timeout
 ├── openapi.rs     # ApiDoc: utoipa paths, schemas, Swagger UI
 ├── api/           # Axum handlers + utoipa::path annotations. No business logic.
-│   └── extract.rs # ApiJson/ApiPath/ApiQuery: every rejection is a JSON 400 (ADR-010)
+│   ├── mod.rs     # build_router: routes + request guard + tracing + CORS (used by main.rs and tests)
+│   ├── extract.rs # ApiJson/ApiPath/ApiQuery: every rejection is a JSON 400 (ADR-010)
+│   └── middleware.rs # Request timeout (503), default Retry-After, request_deadline() (ADR-008)
 ├── service/       # Business rules and validation. No HTTP types.
 ├── repository/    # Data access behind traits (SeaORM impl + Mock impl)
 ├── model/         # SeaORM entities and dtos.rs (request/response payloads)
@@ -73,8 +75,8 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 | `EVENTS_PAGE_SIZE_MAX` | `100` | Read, not used yet (ADR-006) | Maximum `per_page` accepted (larger values are clamped) |
 | `KAFKA_BROKERS` | `localhost:9092` | Read, not used yet (ADR-006) | Kafka bootstrap servers |
 | `KAFKA_EVENTS_TOPIC` | `events.lifecycle` | Read, not used yet (ADR-006) | Topic for `EventPublished` and `EventUpdated` (C6) |
-| `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Read, not used yet (ADR-008) | Total time for one incoming HTTP request |
-| `HTTP_RETRY_AFTER_SECONDS` | `2` | Read, not used yet (ADR-008) | `Retry-After` on a `503` when no better value is known |
+| `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Implemented | Total time for one incoming HTTP request |
+| `HTTP_RETRY_AFTER_SECONDS` | `2` | Implemented | `Retry-After` on a `503` when no better value is known |
 | `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Read, not used yet (ADR-008) | Per-attempt timeout calling Venue Service |
 | `RETRY_MAX_ATTEMPTS` | `3` | Read, not used yet (ADR-008) | Total attempts per outgoing call, including the first |
 | `RETRY_BASE_DELAY_MS` | `100` | Read, not used yet (ADR-008) | Base delay for exponential backoff with full jitter |
