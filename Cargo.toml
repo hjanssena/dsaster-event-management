@@ -6,7 +6,7 @@ default-run = "eventManagement_api"
 
 [dependencies]
 # Framework web y asincronía
-axum = "0.7"
+axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1.1", features = ["full"] }
 
 # ORM (Ajusta "sqlx-postgres" a "sqlx-mysql" si una bd es mysql)

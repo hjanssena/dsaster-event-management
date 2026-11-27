@@ -1,5 +1,6 @@
 pub mod auth_srv;
 pub mod event_srv;
+pub mod request_time;
 pub mod token_verifier;
 pub mod venue_client;
 

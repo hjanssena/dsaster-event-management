@@ -2,6 +2,7 @@ use chrono::Utc;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::config::PaginationConfig;
 use crate::core::error::AppError;
 use crate::model::dtos::{
     CreateEventRequestDto, EventConfirmationDto, EventPaginationQueryDto, EventResponseDto,
@@ -10,6 +11,7 @@ use crate::model::dtos::{
 use crate::model::partner::{self, PartnerRole};
 use crate::repository::EventRepository;
 use crate::service::VenueClient;
+use crate::service::request_time::parse_request_time;
 
 fn validate_non_empty_text(value: String, field_label: &str) -> Result<String, AppError> {
     let trimmed = value.trim();
@@ -59,11 +61,20 @@ fn resolve_target_schedule(
 pub struct EventService {
     repo: Arc<dyn EventRepository>,
     venue_client: Arc<dyn VenueClient>,
+    pagination: PaginationConfig,
 }
 
 impl EventService {
-    pub fn new(repo: Arc<dyn EventRepository>, venue_client: Arc<dyn VenueClient>) -> Self {
-        Self { repo, venue_client }
+    pub fn new(
+        repo: Arc<dyn EventRepository>,
+        venue_client: Arc<dyn VenueClient>,
+        pagination: PaginationConfig,
+    ) -> Self {
+        Self {
+            repo,
+            venue_client,
+            pagination,
+        }
     }
 
     /// Obtiene los detalles completos de un evento específico por su ID.
@@ -79,18 +90,22 @@ impl EventService {
     }
 
     /// Obtiene eventos de forma paginada aplicando filtros opcionales (incluyendo id específico).
-    /// Aplica validaciones defensivas: page >= 1 y per_page acotado entre 1 y 100.
+    /// `page` defaults to 1 (0 counts as 1); `per_page` defaults to `EVENTS_PAGE_SIZE_DEFAULT`
+    /// and is clamped to between 1 and `EVENTS_PAGE_SIZE_MAX` (ADR-006).
     pub async fn get_events(
         &self,
         mut query: EventPaginationQueryDto,
     ) -> Result<PaginatedEventSummaryResponse, AppError> {
         let page = query.page.unwrap_or(1).max(1);
-        let per_page = query.per_page.unwrap_or(10).clamp(1, 100);
+        let per_page = query
+            .per_page
+            .unwrap_or(self.pagination.default_page_size)
+            .clamp(1, self.pagination.max_page_size);
 
         query.page = Some(page);
         query.per_page = Some(per_page);
 
-        self.repo.find_paginated(&query).await
+        self.repo.find_paginated(&query, page, per_page).await
     }
 
     /// Registra y crea un nuevo evento en el sistema a nombre del organizador autenticado.
@@ -106,6 +121,9 @@ impl EventService {
                 "Only organizers can register events".to_string(),
             ));
         }
+
+        // Times are parsed before any other check: no offset is 422, not a time is 400 (ADR-010)
+        let date = parse_request_time(&dto.date, "date")?;
 
         // 1. Validar nombre no vacío
         if dto.name.trim().is_empty() {
@@ -123,7 +141,7 @@ impl EventService {
 
         // 3. Validar fecha válida en calendario (debe ser futura)
         let now = Utc::now();
-        if dto.date <= now {
+        if date <= now {
             return Err(AppError::BadRequest(
                 "Event date must be a valid future calendar date".to_string(),
             ));
@@ -142,7 +160,9 @@ impl EventService {
         let event_id = Uuid::new_v4();
 
         // 6. Persistir atómicamente en base de datos
-        self.repo.create_event(&dto, event_id, organizer_id).await
+        self.repo
+            .create_event(&dto, date, event_id, organizer_id)
+            .await
     }
 
     pub async fn update_event(
@@ -200,7 +220,14 @@ impl EventService {
             .map(|value| validate_non_empty_text(value, "Artist name"))
             .transpose()?;
 
-        let schedule_update = match dto.date {
+        // No offset is 422, not a time is 400 (ADR-010)
+        let new_date = dto
+            .date
+            .as_ref()
+            .map(|date| parse_request_time(date, "date"))
+            .transpose()?;
+
+        let schedule_update = match new_date {
             Some(new_date) => {
                 if new_date <= Utc::now() {
                     return Err(AppError::BadRequest(

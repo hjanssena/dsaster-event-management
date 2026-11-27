@@ -131,6 +131,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedEventSummaryResponse'
+        '400':
+          description: Malformed query value, such as a non-numeric page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
         '500':
           description: Error interno del servidor
           content:
@@ -159,7 +165,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventConfirmationDto'
         '400':
-          description: Nombre o artista vacío, o fecha que no está en el futuro
+          description: Malformed request (invalid JSON, wrong type, missing field or Content-Type), empty name or artist, or a date that is not in the future
           content:
             application/json:
               schema:
@@ -177,7 +183,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
         '422':
-          description: Recinto inexistente o inválido
+          description: Date without a timezone offset, or a venue that does not exist
           content:
             application/json:
               schema:
@@ -280,7 +286,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
         '422':
-          description: Target venue or schedule_id is invalid or does not exist
+          description: Date without a timezone offset, or a target venue or schedule_id that is invalid or does not exist
           content:
             application/json:
               schema:
@@ -334,7 +340,8 @@ components:
         date:
           type: string
           format: date-time
-          description: Required event start date and time. Use RFC 3339 with a timezone, such as 2099-07-15T20:00:00Z. Must be in the future when submitted.
+          description: Required event start date and time, in RFC 3339 with a timezone offset, such as 2099-07-15T20:00:00Z or 2099-07-15T14:00:00-06:00. A time without an offset gets 422. Must be in the future when submitted.
+          example: 2099-07-15T20:00:00Z
         description:
           type: string
           description: Optional event description. Omit or send null when not needed.
@@ -656,6 +663,7 @@ components:
         date:
           type: string
           format: date-time
+          description: New event start date and time, in RFC 3339 with a timezone offset. A time without an offset gets 422.
           example: 2099-08-20T20:00:00Z
           nullable: true
         name:

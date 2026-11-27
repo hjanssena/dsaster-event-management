@@ -1,3 +1,8 @@
+//! Shared test helpers. Each test binary uses only part of them.
+#![allow(dead_code)]
+
+pub mod db;
+
 use eventManagement_api::migration::{Migrator, MigratorTrait};
 use sea_orm::{DatabaseConnection, DbErr};
 
@@ -5,4 +10,3 @@ use sea_orm::{DatabaseConnection, DbErr};
 pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
     Migrator::up(db, None).await
 }
-

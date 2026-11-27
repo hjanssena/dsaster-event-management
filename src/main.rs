@@ -1,15 +1,12 @@
-use axum::{Router, routing::get};
-use sea_orm::Database;
 use std::sync::Arc;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 use eventManagement_api::{
     AppState, api,
     config::AppConfig,
+    db,
     migration::{Migrator, MigratorTrait},
-    openapi,
     repository::{
         MockPartnerRepository, PartnerRepository, SeaOrmEventRepository, SeaOrmPartnerRepository,
     },
@@ -30,7 +27,7 @@ async fn main() {
     let config = AppConfig::from_env();
 
     info!("Conectando a la base de datos principal...");
-    let event_db = Database::connect(&config.database_url)
+    let event_db = db::connect(&config.database_url, &config.db)
         .await
         .expect("Error al conectar con la base de datos principal");
 
@@ -44,21 +41,22 @@ async fn main() {
     // 4. Inicializar Repositorios y Servicios (Inyección de Dependencias)
     let repo = Arc::new(SeaOrmEventRepository::new(event_db.clone()));
 
-    let venue_client: Arc<dyn VenueClient> = if config.mock_venue_service {
+    let venue_client: Arc<dyn VenueClient> = if config.venue.use_mock {
         info!("Iniciando VenueClient en modo MOCK (simulado en memoria)");
         Arc::new(MockVenueClient::new_permissive())
     } else {
         info!(
             "Iniciando HttpVenueClient conectado a {}",
-            config.venue_service_url
+            config.venue.base_url
         );
         Arc::new(HttpVenueClient::with_token(
-            config.venue_service_url.clone(),
-            config.venue_service_token.clone(),
+            config.venue.base_url.clone(),
+            config.venue.token.clone(),
+            config.venue.timeout,
         ))
     };
 
-    let event_service = Arc::new(EventService::new(repo, venue_client));
+    let event_service = Arc::new(EventService::new(repo, venue_client, config.pagination));
 
     // Partners: en modo MOCK se precargan un organizador y un venue owner de desarrollo
     let partner_repo: Arc<dyn PartnerRepository> = if config.mock_auth {
@@ -83,18 +81,8 @@ async fn main() {
         search_db: None,
     };
 
-    // 4. Configurar CORS
-    let cors = CorsLayer::permissive();
-
-    // 5. Configurar el Router de Axum
-    let app = Router::new()
-        .merge(openapi::swagger_ui())
-        .route("/health", get(api::health_api::health_check))
-        .nest("/api/v1/events", api::event_api::routes())
-        .nest("/events", api::event_api::routes()) // Alias compatible
-        .layer(TraceLayer::new_for_http()) // Middleware para logs HTTP
-        .layer(cors) // Middleware para CORS
-        .with_state(state);
+    // 5. Router with the request guard, tracing and CORS (shared with the tests)
+    let app = api::build_router(state, &config.http);
 
     info!("EventAPI escuchando peticiones en {}", config.server_addr);
     let listener = tokio::net::TcpListener::bind(&config.server_addr)
