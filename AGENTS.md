@@ -113,8 +113,9 @@ Swagger UI is served at `/swagger-ui` and the JSON at `/api-docs/openapi.json`.
 
 ## Testing
 
-- Tests run against real PostgreSQL (ADR-011). Start it with `docker compose up -d event-db` and set `TEST_DATABASE_URL`. The harness in `tests/common` migrates a template database once and gives each test its own copy, so tests are isolated and run in parallel.
-- Protected endpoints get real `HS256` tokens signed with the test secret by the `tests/common` helper. Use its expired, wrong-secret and wrong-algorithm tokens for `401` tests.
+- Tests run against real PostgreSQL (ADR-011). Start it with `docker compose up -d event-db` and set `TEST_DATABASE_URL` (in `.env` or the shell) to the server with any existing database in the path, for example `postgres://usuario:password@localhost:5432/postgres`. Then run `cargo test`. Without it, database tests fail with these instructions.
+- In a test, `let db = common::db::TestDb::new().await;` (add `mod common;` to the test file) gives a database of its own with every migration applied, at `db.conn`. It is dropped when `db` goes out of scope, also when the test fails. The harness builds a template database `event_test_tpl_<hash>` once per migration set; leftover databases are named `event_test_*` and can be dropped by hand.
+- Protected endpoints get real `HS256` tokens signed with the test secret by the `tests/common` helper (TMP02). Use its expired, wrong-secret and wrong-algorithm tokens for `401` tests.
 - Time comes from real clocks: set times relative to now, and write a past `sale_starts_at` straight into the database to test a locked event.
 - API tests go in `tests/event_api_test.rs`. Build the router with `create_test_app` and the real repository, then send requests with `tower::ServiceExt::oneshot`.
 - Service tests go in `tests/event_service_test.rs` and call `EventService` against the test database.

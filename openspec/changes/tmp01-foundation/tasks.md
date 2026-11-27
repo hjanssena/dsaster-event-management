@@ -29,7 +29,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
 
 ## 3. Test harness
 
-- [ ] 3.1 Add `TestDb` in `tests/common/db.rs` (design §7): template built once under an advisory lock, a copy per test with a retry on `55006`, and `Drop` cleanup with `WITH (FORCE)`. It panics with instructions when `TEST_DATABASE_URL` is missing.
+- [x] 3.1 Add `TestDb` in `tests/common/db.rs` (design §7): template built once under an advisory lock, a copy per test with a retry on `55006`, and `Drop` cleanup with `WITH (FORCE)`. It panics with instructions when `TEST_DATABASE_URL` is missing.
   - Add `TEST_DATABASE_URL` to the `test` job in `.github/workflows/validation.yml`, the one workflow edit this ticket allows.
   - Update the `AGENTS.md` Testing section with how to run the tests.
   - Verify with harness tests for every `test-infrastructure` scenario:

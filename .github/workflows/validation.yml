@@ -63,4 +63,5 @@ jobs:
       - name: "run tests"
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/event_management_test
+          TEST_DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
         run: cargo test
