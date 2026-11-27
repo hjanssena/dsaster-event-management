@@ -50,7 +50,7 @@ openspec/          # Specs and change proposals (see Spec-driven workflow)
 
 A task is done only when the format check, `cargo lint` and `cargo test` all pass. CI (`.github/workflows/validation.yml`) runs the same commands on every PR to `main` and `testing`.
 
-Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-008):
+Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-008). Every duration, size and limit must be a positive integer; Event Service refuses to start otherwise, naming every invalid variable. "Read, not used yet" means the value is parsed and validated, but the feature that uses it is not built yet:
 
 | Variable | Default | Status | Purpose |
 |---|---|---|---|
@@ -59,30 +59,31 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 | `MOCK_AUTH` | `true` | Implemented, to be removed (ADR-007) | Mock tokens & dev partners. Removed with the `HS256` verifier, with no replacement |
 | `MOCK_VENUE_SERVICE` | `true` | Implemented | `MockVenueClient` instead of calling Venue Service. The only mock left (ADR-011), until Venue Service exposes zones |
 | `VENUE_SERVICE_URL` | `http://localhost:3001` | Implemented | Venue Service base URL |
+| `VENUE_SERVICE_TOKEN` | unset | Implemented | Bearer token sent to Venue Service on `GET /venues/{id}`; unset or blank sends none (never commit a real one) |
 | `JWT_SECRET` | required | Planned (ADR-007) | `HS256` secret for local JWT verification, in every environment including local and tests. Shared with Auth Service in shared environments (never commit a real one) |
 | `TEST_DATABASE_URL` | required by tests | Planned (ADR-011) | Postgres server the tests create their databases on. Tests only, not read by `src/config.rs` |
-| `EVENT_VISIBILITY_LEAD_DAYS` | `10` | Planned (ADR-006) | Days before `sale_starts_at` when an event is published (C6) |
-| `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` | `60` | Planned (ADR-006) | Scheduled publish job interval (ADR-003) |
-| `EVENT_PUBLISH_JOB_BATCH_SIZE` | `100` | Planned (ADR-006) | Events the publish job publishes per run (ADR-003) |
-| `OUTBOX_RELAY_INTERVAL_MS` | `1000` | Planned (ADR-006) | Outbox relay polling interval (ADR-004) |
-| `OUTBOX_RELAY_BATCH_SIZE` | `100` | Planned (ADR-006) | Outbox rows processed per relay read (ADR-004) |
-| `EVENTS_PAGE_SIZE_DEFAULT` | `10` | Planned (ADR-006) | Default `per_page` when omitted |
-| `EVENTS_PAGE_SIZE_MAX` | `100` | Planned (ADR-006) | Maximum `per_page` accepted (larger values are clamped) |
-| `KAFKA_BROKERS` | `localhost:9092` | Planned (ADR-006) | Kafka bootstrap servers |
-| `KAFKA_EVENTS_TOPIC` | `events.lifecycle` | Planned (ADR-006) | Topic for `EventPublished` and `EventUpdated` (C6) |
-| `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Planned (ADR-008) | Total time for one incoming HTTP request |
-| `HTTP_RETRY_AFTER_SECONDS` | `2` | Planned (ADR-008) | `Retry-After` on a `503` when no better value is known |
-| `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Planned (ADR-008) | Per-attempt timeout calling Venue Service |
-| `RETRY_MAX_ATTEMPTS` | `3` | Planned (ADR-008) | Total attempts per outgoing call, including the first |
-| `RETRY_BASE_DELAY_MS` | `100` | Planned (ADR-008) | Base delay for exponential backoff with full jitter |
-| `RETRY_MAX_DELAY_MS` | `2000` | Planned (ADR-008) | Longest wait between retry attempts |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Planned (ADR-008) | Consecutive failures (after retries) that open a breaker |
-| `CIRCUIT_BREAKER_OPEN_SECONDS` | `30` | Planned (ADR-008) | Time a breaker stays open before a trial call |
-| `KAFKA_MESSAGE_TIMEOUT_MS` | `30000` | Planned (ADR-008) | Time the Kafka producer tries to deliver one message |
-| `OUTBOX_RELAY_MAX_BACKOFF_MS` | `30000` | Planned (ADR-008) | Longest wait of the outbox relay after failures |
-| `DB_POOL_ACQUIRE_TIMEOUT_MS` | `3000` | Planned (ADR-008) | Wait for a pooled database connection |
-| `DB_STATEMENT_TIMEOUT_MS` | `5000` | Planned (ADR-008) | Longest single SQL statement |
-| `IDEMPOTENCY_KEY_TTL_HOURS` | `24` | Planned (ADR-008) | Retention time for `Idempotency-Key` records |
+| `EVENT_VISIBILITY_LEAD_DAYS` | `10` | Read, not used yet (ADR-006) | Days before `sale_starts_at` when an event is published (C6) |
+| `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` | `60` | Read, not used yet (ADR-006) | Scheduled publish job interval (ADR-003) |
+| `EVENT_PUBLISH_JOB_BATCH_SIZE` | `100` | Read, not used yet (ADR-006) | Events the publish job publishes per run (ADR-003) |
+| `OUTBOX_RELAY_INTERVAL_MS` | `1000` | Read, not used yet (ADR-006) | Outbox relay polling interval (ADR-004) |
+| `OUTBOX_RELAY_BATCH_SIZE` | `100` | Read, not used yet (ADR-006) | Outbox rows processed per relay read (ADR-004) |
+| `EVENTS_PAGE_SIZE_DEFAULT` | `10` | Read, not used yet (ADR-006) | Default `per_page` when omitted |
+| `EVENTS_PAGE_SIZE_MAX` | `100` | Read, not used yet (ADR-006) | Maximum `per_page` accepted (larger values are clamped) |
+| `KAFKA_BROKERS` | `localhost:9092` | Read, not used yet (ADR-006) | Kafka bootstrap servers |
+| `KAFKA_EVENTS_TOPIC` | `events.lifecycle` | Read, not used yet (ADR-006) | Topic for `EventPublished` and `EventUpdated` (C6) |
+| `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Read, not used yet (ADR-008) | Total time for one incoming HTTP request |
+| `HTTP_RETRY_AFTER_SECONDS` | `2` | Read, not used yet (ADR-008) | `Retry-After` on a `503` when no better value is known |
+| `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Read, not used yet (ADR-008) | Per-attempt timeout calling Venue Service |
+| `RETRY_MAX_ATTEMPTS` | `3` | Read, not used yet (ADR-008) | Total attempts per outgoing call, including the first |
+| `RETRY_BASE_DELAY_MS` | `100` | Read, not used yet (ADR-008) | Base delay for exponential backoff with full jitter |
+| `RETRY_MAX_DELAY_MS` | `2000` | Read, not used yet (ADR-008) | Longest wait between retry attempts |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Read, not used yet (ADR-008) | Consecutive failures (after retries) that open a breaker |
+| `CIRCUIT_BREAKER_OPEN_SECONDS` | `30` | Read, not used yet (ADR-008) | Time a breaker stays open before a trial call |
+| `KAFKA_MESSAGE_TIMEOUT_MS` | `30000` | Read, not used yet (ADR-008) | Time the Kafka producer tries to deliver one message |
+| `OUTBOX_RELAY_MAX_BACKOFF_MS` | `30000` | Read, not used yet (ADR-008) | Longest wait of the outbox relay after failures |
+| `DB_POOL_ACQUIRE_TIMEOUT_MS` | `3000` | Read, not used yet (ADR-008) | Wait for a pooled database connection |
+| `DB_STATEMENT_TIMEOUT_MS` | `5000` | Read, not used yet (ADR-008) | Longest single SQL statement |
+| `IDEMPOTENCY_KEY_TTL_HOURS` | `24` | Read, not used yet (ADR-008) | Retention time for `Idempotency-Key` records |
 
 ## Code conventions
 

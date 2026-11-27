@@ -44,17 +44,17 @@ async fn main() {
     // 4. Inicializar Repositorios y Servicios (Inyección de Dependencias)
     let repo = Arc::new(SeaOrmEventRepository::new(event_db.clone()));
 
-    let venue_client: Arc<dyn VenueClient> = if config.mock_venue_service {
+    let venue_client: Arc<dyn VenueClient> = if config.venue.use_mock {
         info!("Iniciando VenueClient en modo MOCK (simulado en memoria)");
         Arc::new(MockVenueClient::new_permissive())
     } else {
         info!(
             "Iniciando HttpVenueClient conectado a {}",
-            config.venue_service_url
+            config.venue.base_url
         );
         Arc::new(HttpVenueClient::with_token(
-            config.venue_service_url.clone(),
-            config.venue_service_token.clone(),
+            config.venue.base_url.clone(),
+            config.venue.token.clone(),
         ))
     };
 
