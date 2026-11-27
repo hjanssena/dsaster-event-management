@@ -52,10 +52,11 @@ async fn main() {
         Arc::new(HttpVenueClient::with_token(
             config.venue.base_url.clone(),
             config.venue.token.clone(),
+            config.venue.timeout,
         ))
     };
 
-    let event_service = Arc::new(EventService::new(repo, venue_client));
+    let event_service = Arc::new(EventService::new(repo, venue_client, config.pagination));
 
     // Partners: en modo MOCK se precargan un organizador y un venue owner de desarrollo
     let partner_repo: Arc<dyn PartnerRepository> = if config.mock_auth {

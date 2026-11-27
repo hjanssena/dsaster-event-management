@@ -5,6 +5,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use eventManagement_api::{
+    config::PaginationConfig,
     core::error::AppError,
     model::dtos::{
         CreateEventRequestDto, EventMediaDto, EventPaginationQueryDto, EventPricingTierDto,
@@ -14,6 +15,14 @@ use eventManagement_api::{
     repository::MockEventRepository,
     service::{EventService, MockVenueClient, request_time::parse_request_time},
 };
+
+/// Page sizes passed explicitly, never relying on defaults (ADR-006).
+fn pagination(default_page_size: u64, max_page_size: u64) -> PaginationConfig {
+    PaginationConfig {
+        default_page_size,
+        max_page_size,
+    }
+}
 
 fn create_partner(role: PartnerRole) -> partner::Model {
     partner::Model {
@@ -85,7 +94,7 @@ async fn test_get_event_by_id_success() {
 
     mock_repo.insert(sample.clone()).await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
     let result = service.get_event_by_id(event_id).await.unwrap();
 
     assert_eq!(result.id, event_id);
@@ -100,7 +109,7 @@ async fn test_get_event_by_id_success() {
 async fn test_get_event_by_id_not_found() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
     let non_existent_id = Uuid::new_v4();
 
     let err = service.get_event_by_id(non_existent_id).await.unwrap_err();
@@ -129,7 +138,7 @@ async fn test_get_events_pagination_defaults() {
         mock_repo.insert(ev).await;
     }
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let query = EventPaginationQueryDto {
         page: None,
@@ -154,7 +163,7 @@ async fn test_get_events_pagination_defaults() {
 async fn test_get_events_clamp_max_per_page() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let query = EventPaginationQueryDto {
         page: Some(1),
@@ -194,7 +203,7 @@ async fn test_get_events_filter_by_id_found() {
         ))
         .await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let query = EventPaginationQueryDto {
         page: None,
@@ -229,7 +238,7 @@ async fn test_get_events_filter_by_id_not_found() {
         ))
         .await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let query = EventPaginationQueryDto {
         page: None,
@@ -277,7 +286,7 @@ async fn test_get_events_filter_by_status() {
         ))
         .await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let query = EventPaginationQueryDto {
         page: None,
@@ -303,7 +312,7 @@ async fn test_get_events_filter_by_status() {
 async fn test_create_event_success_minimal_fields() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo.clone(), venue_client);
+    let service = EventService::new(mock_repo.clone(), venue_client, pagination(10, 100));
 
     let venue_id = Uuid::new_v4();
     let future_date = Utc::now() + Duration::days(30);
@@ -343,7 +352,7 @@ async fn test_create_event_success_minimal_fields() {
 async fn test_create_event_empty_name() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
@@ -368,7 +377,7 @@ async fn test_create_event_empty_name() {
 async fn test_create_event_empty_artist() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
@@ -393,7 +402,7 @@ async fn test_create_event_empty_artist() {
 async fn test_create_event_past_date() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let organizer = create_partner(PartnerRole::Organizer);
     let request = CreateEventRequestDto {
@@ -423,7 +432,7 @@ async fn test_create_event_venue_not_found() {
     allowed.insert(valid_venue_id);
 
     let venue_client = Arc::new(MockVenueClient::new_with_venues(allowed));
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let unknown_venue = Uuid::new_v4();
     let organizer = create_partner(PartnerRole::Organizer);
@@ -451,7 +460,7 @@ async fn test_create_event_venue_not_found() {
 async fn test_create_event_venue_owner_forbidden() {
     let mock_repo = Arc::new(MockEventRepository::new());
     let venue_client = Arc::new(MockVenueClient::new_permissive());
-    let service = EventService::new(mock_repo.clone(), venue_client);
+    let service = EventService::new(mock_repo.clone(), venue_client, pagination(10, 100));
 
     let venue_owner = create_partner(PartnerRole::VenueOwner);
     let request = CreateEventRequestDto {
@@ -538,7 +547,7 @@ async fn test_update_event_full_success_preserves_server_fields() {
     mock_repo.insert(original.clone()).await;
 
     let new_date = Utc::now() + Duration::days(60);
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let updated = service
         .update_event(
@@ -579,7 +588,7 @@ async fn test_update_event_partial_metadata_skips_venue_verification() {
     let original = create_owned_event_with_schedules(event_id, organizer.id, unverified_venue, 1);
     mock_repo.insert(original.clone()).await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let updated = service
         .update_event(
@@ -631,7 +640,7 @@ async fn test_update_event_role_and_ownership_forbidden() {
         create_owned_event_with_schedules(event_id, owner_organizer.id, Uuid::new_v4(), 1);
     mock_repo.insert(original.clone()).await;
 
-    let service = EventService::new(mock_repo.clone(), venue_client);
+    let service = EventService::new(mock_repo.clone(), venue_client, pagination(10, 100));
     let request = UpdateEventRequestDto {
         name: Some("Hijacked".to_string()),
         artist: None,
@@ -665,7 +674,7 @@ async fn test_update_event_not_found_and_validation_errors() {
     let original = create_owned_event_with_schedules(event_id, organizer.id, Uuid::new_v4(), 1);
     mock_repo.insert(original).await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
 
     let missing_err = service
         .update_event(
@@ -753,7 +762,7 @@ async fn test_update_event_explicit_schedule_targeting() {
         create_owned_event_with_schedules(empty_sched_id, organizer.id, Uuid::new_v4(), 0);
     mock_repo.insert(empty_sched_event).await;
 
-    let service = EventService::new(mock_repo, venue_client);
+    let service = EventService::new(mock_repo, venue_client, pagination(10, 100));
     let future_date = Utc::now() + Duration::days(90);
 
     let ambiguous_err = service
@@ -835,7 +844,7 @@ async fn test_update_event_invalid_changed_venue_and_persistence_failure() {
     let original = create_owned_event_with_schedules(event_id, organizer.id, valid_venue, 1);
     mock_repo.insert(original.clone()).await;
 
-    let service = EventService::new(mock_repo.clone(), venue_client);
+    let service = EventService::new(mock_repo.clone(), venue_client, pagination(10, 100));
 
     let venue_err = service
         .update_event(
@@ -921,6 +930,7 @@ async fn test_create_event_date_without_offset_is_422() {
     let service = EventService::new(
         Arc::new(MockEventRepository::new()),
         Arc::new(MockVenueClient::new_permissive()),
+        pagination(10, 100),
     );
     let request = CreateEventRequestDto {
         name: "Arctic Monkeys Live".to_string(),
@@ -948,7 +958,11 @@ async fn test_update_event_date_without_offset_is_422() {
     event.organizer_id = organizer.id;
     let event_id = event.id;
     mock_repo.insert(event).await;
-    let service = EventService::new(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+    let service = EventService::new(
+        mock_repo,
+        Arc::new(MockVenueClient::new_permissive()),
+        pagination(10, 100),
+    );
 
     let err = service
         .update_event(
@@ -965,4 +979,68 @@ async fn test_update_event_date_without_offset_is_422() {
         .await
         .unwrap_err();
     assert!(matches!(err, AppError::UnprocessableEntity(_)), "{err:?}");
+}
+
+// ==================== Configured page sizes (ADR-006) ====================
+
+async fn service_with_events(count: usize, page_sizes: PaginationConfig) -> EventService {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let venue_id = Uuid::new_v4();
+    for i in 1..=count {
+        mock_repo
+            .insert(create_sample_event(
+                Uuid::new_v4(),
+                &format!("Show #{i}"),
+                "Scheduled",
+                venue_id,
+            ))
+            .await;
+    }
+    EventService::new(
+        mock_repo,
+        Arc::new(MockVenueClient::new_permissive()),
+        page_sizes,
+    )
+}
+
+fn page_query(page: Option<u64>, per_page: Option<u64>) -> EventPaginationQueryDto {
+    EventPaginationQueryDto {
+        page,
+        per_page,
+        status: None,
+        venue_id: None,
+        organizer_id: None,
+        id: None,
+    }
+}
+
+#[tokio::test]
+async fn test_get_events_uses_configured_default_page_size() {
+    let service = service_with_events(20, pagination(7, 50)).await;
+    let result = service.get_events(page_query(None, None)).await.unwrap();
+
+    assert_eq!(result.per_page, 7);
+    assert_eq!(result.items.len(), 7);
+    assert_eq!(result.total_pages, 3);
+}
+
+#[tokio::test]
+async fn test_get_events_clamps_to_configured_maximum() {
+    let service = service_with_events(60, pagination(7, 50)).await;
+    let result = service
+        .get_events(page_query(None, Some(500)))
+        .await
+        .unwrap();
+
+    assert_eq!(result.per_page, 50);
+    assert_eq!(result.items.len(), 50);
+}
+
+#[tokio::test]
+async fn test_get_events_page_zero_is_page_one() {
+    let service = service_with_events(3, pagination(7, 50)).await;
+    let result = service.get_events(page_query(Some(0), None)).await.unwrap();
+
+    assert_eq!(result.page, 1);
+    assert_eq!(result.items.len(), 3);
 }

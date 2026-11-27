@@ -71,13 +71,13 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 | `EVENT_PUBLISH_JOB_BATCH_SIZE` | `100` | Read, not used yet (ADR-006) | Events the publish job publishes per run (ADR-003) |
 | `OUTBOX_RELAY_INTERVAL_MS` | `1000` | Read, not used yet (ADR-006) | Outbox relay polling interval (ADR-004) |
 | `OUTBOX_RELAY_BATCH_SIZE` | `100` | Read, not used yet (ADR-006) | Outbox rows processed per relay read (ADR-004) |
-| `EVENTS_PAGE_SIZE_DEFAULT` | `10` | Read, not used yet (ADR-006) | Default `per_page` when omitted |
-| `EVENTS_PAGE_SIZE_MAX` | `100` | Read, not used yet (ADR-006) | Maximum `per_page` accepted (larger values are clamped) |
+| `EVENTS_PAGE_SIZE_DEFAULT` | `10` | Implemented | Default `per_page` when omitted |
+| `EVENTS_PAGE_SIZE_MAX` | `100` | Implemented | Maximum `per_page` accepted (larger values are clamped) |
 | `KAFKA_BROKERS` | `localhost:9092` | Read, not used yet (ADR-006) | Kafka bootstrap servers |
 | `KAFKA_EVENTS_TOPIC` | `events.lifecycle` | Read, not used yet (ADR-006) | Topic for `EventPublished` and `EventUpdated` (C6) |
 | `HTTP_REQUEST_TIMEOUT_MS` | `10000` | Implemented | Total time for one incoming HTTP request |
 | `HTTP_RETRY_AFTER_SECONDS` | `2` | Implemented | `Retry-After` on a `503` when no better value is known |
-| `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Read, not used yet (ADR-008) | Per-attempt timeout calling Venue Service |
+| `VENUE_SERVICE_TIMEOUT_MS` | `2000` | Implemented | Per-attempt timeout calling Venue Service |
 | `RETRY_MAX_ATTEMPTS` | `3` | Read, not used yet (ADR-008) | Total attempts per outgoing call, including the first |
 | `RETRY_BASE_DELAY_MS` | `100` | Read, not used yet (ADR-008) | Base delay for exponential backoff with full jitter |
 | `RETRY_MAX_DELAY_MS` | `2000` | Read, not used yet (ADR-008) | Longest wait between retry attempts |

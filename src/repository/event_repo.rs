@@ -26,10 +26,13 @@ pub trait EventRepository: Send + Sync {
     /// Busca un evento por su ID con todas sus relaciones cargadas
     async fn find_by_id(&self, id: Uuid) -> Result<Option<EventResponseDto>, AppError>;
 
-    /// Busca eventos de forma paginada aplicando filtros opcionales
+    /// Busca eventos de forma paginada aplicando filtros opcionales.
+    /// `page` (from 1) and `per_page` come already validated from the service.
     async fn find_paginated(
         &self,
         query: &EventPaginationQueryDto,
+        page: u64,
+        per_page: u64,
     ) -> Result<PaginatedEventSummaryResponse, AppError>;
 
     /// Crea y persiste un evento de forma atómica en base de datos
@@ -148,6 +151,8 @@ impl EventRepository for SeaOrmEventRepository {
     async fn find_paginated(
         &self,
         query: &EventPaginationQueryDto,
+        page: u64,
+        per_page: u64,
     ) -> Result<PaginatedEventSummaryResponse, AppError> {
         let mut select = event::Entity::find();
 
@@ -165,9 +170,6 @@ impl EventRepository for SeaOrmEventRepository {
         }
 
         select = select.order_by_desc(event::Column::CreatedAt);
-
-        let page = query.page.unwrap_or(1).max(1);
-        let per_page = query.per_page.unwrap_or(10).clamp(1, 100);
 
         let paginator = select.paginate(&self.db, per_page);
         let total_items = paginator.num_items().await?;
@@ -366,10 +368,10 @@ impl EventRepository for MockEventRepository {
     async fn find_paginated(
         &self,
         query: &EventPaginationQueryDto,
+        page: u64,
+        per_page: u64,
     ) -> Result<PaginatedEventSummaryResponse, AppError> {
         let lock = self.storage.read().await;
-        let page = query.page.unwrap_or(1).max(1);
-        let per_page = query.per_page.unwrap_or(10).clamp(1, 100);
 
         let mut filtered: Vec<EventResponseDto> = lock
             .values()

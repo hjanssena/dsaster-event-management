@@ -73,13 +73,15 @@ pub struct HttpVenueClient {
 }
 
 impl HttpVenueClient {
-    pub fn new(base_url: String) -> Self {
-        Self::with_token(base_url, None)
+    /// `timeout` is `VENUE_SERVICE_TIMEOUT_MS`, the limit for one call (ADR-008).
+    pub fn new(base_url: String, timeout: Duration) -> Self {
+        Self::with_token(base_url, None, timeout)
     }
 
-    pub fn with_token(base_url: String, auth_token: Option<String>) -> Self {
+    /// Like `new`, sending `auth_token` (`VENUE_SERVICE_TOKEN`) as a bearer token.
+    pub fn with_token(base_url: String, auth_token: Option<String>, timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(3))
+            .timeout(timeout)
             .build()
             .unwrap_or_default();
 

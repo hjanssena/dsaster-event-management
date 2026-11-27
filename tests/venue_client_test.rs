@@ -12,6 +12,9 @@ use uuid::Uuid;
 use eventManagement_api::core::error::AppError;
 use eventManagement_api::service::{HttpVenueClient, VenueClient};
 
+/// `VENUE_SERVICE_TIMEOUT_MS` for these tests, passed explicitly (ADR-006).
+const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Clone)]
 struct MockVenueServerState {
     expected_token: String,
@@ -86,7 +89,7 @@ async fn test_http_venue_client_verifies_existing_and_missing_venues_with_bearer
     )
     .await;
 
-    let client = HttpVenueClient::with_token(base_url.clone(), Some(token));
+    let client = HttpVenueClient::with_token(base_url.clone(), Some(token), TIMEOUT);
     assert!(client.verify_venue_exists(valid_venue).await.unwrap());
     assert!(!client.verify_venue_exists(missing_venue).await.unwrap());
 
@@ -99,7 +102,7 @@ async fn test_http_venue_client_verifies_existing_and_missing_venues_with_bearer
     let upstream_err = client.verify_venue_exists(error_venue).await.unwrap_err();
     assert!(matches!(upstream_err, AppError::InternalServerError(_)));
 
-    let unauthenticated_client = HttpVenueClient::new(base_url);
+    let unauthenticated_client = HttpVenueClient::new(base_url, TIMEOUT);
     let auth_err = unauthenticated_client
         .verify_venue_exists(valid_venue)
         .await
@@ -113,7 +116,7 @@ async fn test_http_venue_client_connection_error_returns_internal_error() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
 
-    let client = HttpVenueClient::new(format!("http://{}", addr));
+    let client = HttpVenueClient::new(format!("http://{}", addr), TIMEOUT);
     let err = client
         .verify_venue_exists(Uuid::new_v4())
         .await

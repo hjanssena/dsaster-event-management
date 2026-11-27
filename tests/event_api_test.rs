@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use eventManagement_api::{
     AppState, api,
-    config::HttpConfig,
+    config::{HttpConfig, PaginationConfig},
     model::dtos::{
         EventConfirmationDto, EventMediaDto, EventPricingTierDto, EventResponseDto, EventSaleDto,
         EventScheduleDto, PaginatedEventSummaryResponse,
@@ -27,7 +27,14 @@ fn create_test_app(
     mock_repo: Arc<MockEventRepository>,
     venue_client: Arc<dyn VenueClient>,
 ) -> Router {
-    let service = Arc::new(EventService::new(mock_repo, venue_client));
+    let service = Arc::new(EventService::new(
+        mock_repo,
+        venue_client,
+        PaginationConfig {
+            default_page_size: 10,
+            max_page_size: 100,
+        },
+    ));
     let auth_service = Arc::new(AuthService::new(
         Arc::new(MockTokenVerifier::new()),
         Arc::new(MockPartnerRepository::with_dev_partners()),

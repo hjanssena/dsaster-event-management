@@ -65,7 +65,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
 
 ## 6. Configuration in use
 
-- [ ] 6.1 Pass `PaginationConfig` to `EventService::new` and remove the hardcoded `10`/`100` from the service and both repositories. Pass `VENUE_SERVICE_TIMEOUT_MS` to `HttpVenueClient::new`. Update the existing tests to the new constructors.
+- [x] 6.1 Pass `PaginationConfig` to `EventService::new` and remove the hardcoded `10`/`100` from the service and both repositories. Pass `VENUE_SERVICE_TIMEOUT_MS` to `HttpVenueClient::new`. Update the existing tests to the new constructors.
   - Verify with tests for the `service-configuration` requirements "Pagination uses the configured page sizes" (default 7, max 50 clamps 500, page 0 becomes 1) and "Venue Service calls use the configured timeout". For the timeout, use a local TCP listener that never answers: the call returns an error within about the configured timeout.
   - Commit `refactor(TMP01): use configured page sizes and venue timeout`.
 

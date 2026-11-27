@@ -25,6 +25,7 @@ use eventManagement_api::{
     core::error::AppError,
     db,
     migration::{Migrator, MigratorTrait},
+    service::{HttpVenueClient, VenueClient},
 };
 
 async fn count(db: &TestDb, sql: &str) -> i64 {
@@ -445,4 +446,32 @@ async fn database_unavailable_reaches_the_client_as_503_with_default_retry_after
         "Service temporarily unavailable"
     );
     conn.close().await.unwrap();
+}
+
+// ==================== Configured Venue Service timeout ====================
+
+#[tokio::test]
+async fn venue_service_call_stops_at_the_configured_timeout() {
+    // A server that accepts connections and never answers.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        loop {
+            let (socket, _) = listener.accept().await.unwrap();
+            held.push(socket);
+        }
+    });
+
+    let client = HttpVenueClient::new(format!("http://{address}"), Duration::from_millis(200));
+    let started = std::time::Instant::now();
+    let result = client.verify_venue_exists(uuid::Uuid::new_v4()).await;
+    let elapsed = started.elapsed();
+
+    assert!(result.is_err(), "a call past the timeout must fail");
+    assert!(
+        elapsed >= Duration::from_millis(200) && elapsed < Duration::from_secs(1),
+        "stopped after {elapsed:?}"
+    );
+    server.abort();
 }
