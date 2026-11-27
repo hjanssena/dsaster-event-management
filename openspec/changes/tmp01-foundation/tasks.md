@@ -41,7 +41,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
 
 ## 4. Database sessions
 
-- [ ] 4.1 Add `db::connect` in `src/db.rs` with the acquire timeout and the `TimeZone`/`statement_timeout` startup options (design §6), and use it in `main.rs` and in `TestDb`.
+- [x] 4.1 Add `db::connect` in `src/db.rs` with the acquire timeout and the `TimeZone`/`statement_timeout` startup options (design §6), and use it in `main.rs` and in `TestDb`.
   - Verify with `TestDb` tests for every `database-sessions` scenario:
     - `SHOW TimeZone` is `UTC` after `ALTER DATABASE ... SET timezone = 'America/Mexico_City'`
     - `SHOW statement_timeout` matches the config

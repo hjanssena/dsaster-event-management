@@ -15,6 +15,8 @@ use sea_orm::{
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
+use eventManagement_api::config::DbConfig;
+use eventManagement_api::db;
 use eventManagement_api::migration::{Migrator, MigratorTrait};
 
 /// Environment variable naming the PostgreSQL server for tests.
@@ -176,6 +178,15 @@ async fn build_template_if_missing() -> String {
     name
 }
 
+/// Database limits for test connections: the service's session settings with
+/// waits long enough not to fail a slow CI runner.
+pub fn test_db_config() -> DbConfig {
+    DbConfig {
+        pool_acquire_timeout: Duration::from_secs(10),
+        statement_timeout: Duration::from_secs(30),
+    }
+}
+
 fn is_object_in_use(err: &DbErr) -> bool {
     err.to_string().contains(SQLSTATE_OBJECT_IN_USE)
         || err.to_string().contains("is being accessed by other users")
@@ -215,7 +226,8 @@ impl TestDb {
         admin.close().await.ok();
 
         let url = url_for_database(&server_url, &name);
-        let mut options = ConnectOptions::new(url.clone());
+        // Same session settings as the service, with limits generous enough for tests.
+        let mut options = db::connect_options(&url, &test_db_config());
         options.max_connections(5).sqlx_logging(false);
         let conn = Database::connect(options)
             .await

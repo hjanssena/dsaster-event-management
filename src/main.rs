@@ -1,5 +1,4 @@
 use axum::{Router, routing::get};
-use sea_orm::Database;
 use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{Level, info};
@@ -8,6 +7,7 @@ use tracing_subscriber::FmtSubscriber;
 use eventManagement_api::{
     AppState, api,
     config::AppConfig,
+    db,
     migration::{Migrator, MigratorTrait},
     openapi,
     repository::{
@@ -30,7 +30,7 @@ async fn main() {
     let config = AppConfig::from_env();
 
     info!("Conectando a la base de datos principal...");
-    let event_db = Database::connect(&config.database_url)
+    let event_db = db::connect(&config.database_url, &config.db)
         .await
         .expect("Error al conectar con la base de datos principal");
 

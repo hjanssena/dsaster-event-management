@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub mod api;
 pub mod config;
 pub mod core;
+pub mod db;
 pub mod migration;
 pub mod model;
 pub mod openapi;

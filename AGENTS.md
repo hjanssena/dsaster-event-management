@@ -23,6 +23,7 @@ src/
 ├── main.rs        # Wiring: config, DB, migrations, mock/real selection, router
 ├── lib.rs         # AppState and module exports
 ├── config.rs      # AppConfig::from_env(), the only place that reads env vars
+├── db.rs          # db::connect: pool acquire timeout, UTC sessions, statement_timeout
 ├── openapi.rs     # ApiDoc: utoipa paths, schemas, Swagger UI
 ├── api/           # Axum handlers + utoipa::path annotations. No business logic.
 │   └── extract.rs # ApiJson/ApiPath/ApiQuery: every rejection is a JSON 400 (ADR-010)
@@ -82,8 +83,8 @@ Environment variables (read only in `src/config.rs`; see ADR-006, ADR-007, ADR-0
 | `CIRCUIT_BREAKER_OPEN_SECONDS` | `30` | Read, not used yet (ADR-008) | Time a breaker stays open before a trial call |
 | `KAFKA_MESSAGE_TIMEOUT_MS` | `30000` | Read, not used yet (ADR-008) | Time the Kafka producer tries to deliver one message |
 | `OUTBOX_RELAY_MAX_BACKOFF_MS` | `30000` | Read, not used yet (ADR-008) | Longest wait of the outbox relay after failures |
-| `DB_POOL_ACQUIRE_TIMEOUT_MS` | `3000` | Read, not used yet (ADR-008) | Wait for a pooled database connection |
-| `DB_STATEMENT_TIMEOUT_MS` | `5000` | Read, not used yet (ADR-008) | Longest single SQL statement |
+| `DB_POOL_ACQUIRE_TIMEOUT_MS` | `3000` | Implemented | Wait for a pooled database connection |
+| `DB_STATEMENT_TIMEOUT_MS` | `5000` | Implemented | Longest single SQL statement |
 | `IDEMPOTENCY_KEY_TTL_HOURS` | `24` | Read, not used yet (ADR-008) | Retention time for `Idempotency-Key` records |
 
 ## Code conventions
