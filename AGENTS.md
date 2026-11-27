@@ -25,6 +25,7 @@ src/
 ├── config.rs      # AppConfig::from_env(), the only place that reads env vars
 ├── openapi.rs     # ApiDoc: utoipa paths, schemas, Swagger UI
 ├── api/           # Axum handlers + utoipa::path annotations. No business logic.
+│   └── extract.rs # ApiJson/ApiPath/ApiQuery: every rejection is a JSON 400 (ADR-010)
 ├── service/       # Business rules and validation. No HTTP types.
 ├── repository/    # Data access behind traits (SeaORM impl + Mock impl)
 ├── model/         # SeaORM entities and dtos.rs (request/response payloads)

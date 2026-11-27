@@ -260,7 +260,7 @@ async fn test_http_get_event_by_id_400_bad_uuid() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_json_400(response).await;
 }
 
 #[tokio::test]
@@ -1053,4 +1053,97 @@ async fn test_http_openapi_includes_patch_event() {
         serde_json::json!([])
     );
     assert!(spec["components"]["schemas"]["UpdateEventRequestDto"].is_object());
+}
+
+// ==================== Unparseable requests (ADR-010) ====================
+
+/// Asserts a `400` with `Content-Type: application/json` and a non-empty `error` string.
+async fn assert_json_400(response: axum::response::Response) {
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+    assert!(!error_message(response).await.is_empty());
+}
+
+fn organizer_post(body: &str, content_type: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/api/v1/events")
+        .header(header::AUTHORIZATION, bearer(DEV_ORGANIZER_ID));
+    if let Some(content_type) = content_type {
+        builder = builder.header(header::CONTENT_TYPE, content_type);
+    }
+    builder.body(Body::from(body.to_string())).unwrap()
+}
+
+fn valid_create_body() -> serde_json::Value {
+    serde_json::json!({
+        "name": "Muse World Tour 2026",
+        "artist": "Muse",
+        "date": (Utc::now() + Duration::days(45)).to_rfc3339(),
+        "venue_id": Uuid::new_v4().to_string(),
+    })
+}
+
+fn test_app() -> Router {
+    create_test_app(
+        Arc::new(MockEventRepository::new()),
+        Arc::new(MockVenueClient::new_permissive()),
+    )
+}
+
+#[tokio::test]
+async fn test_http_invalid_json_body_is_json_400() {
+    let response = test_app()
+        .oneshot(organizer_post("{not json", Some("application/json")))
+        .await
+        .unwrap();
+    assert_json_400(response).await;
+}
+
+#[tokio::test]
+async fn test_http_wrong_type_in_body_is_json_400() {
+    let mut body = valid_create_body();
+    body["name"] = serde_json::json!(42);
+    let response = test_app()
+        .oneshot(organizer_post(&body.to_string(), Some("application/json")))
+        .await
+        .unwrap();
+    assert_json_400(response).await;
+}
+
+#[tokio::test]
+async fn test_http_missing_required_field_is_json_400() {
+    let mut body = valid_create_body();
+    body.as_object_mut().unwrap().remove("name");
+    let response = test_app()
+        .oneshot(organizer_post(&body.to_string(), Some("application/json")))
+        .await
+        .unwrap();
+    assert_json_400(response).await;
+}
+
+#[tokio::test]
+async fn test_http_missing_content_type_is_json_400() {
+    let response = test_app()
+        .oneshot(organizer_post(&valid_create_body().to_string(), None))
+        .await
+        .unwrap();
+    assert_json_400(response).await;
+}
+
+#[tokio::test]
+async fn test_http_malformed_query_value_is_json_400() {
+    let response = test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/events?page=abc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_json_400(response).await;
 }

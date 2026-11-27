@@ -16,7 +16,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
   - Verify with tests that a conflict gives `409`, a known wait gives `503` with `Retry-After: 12`, and a `503` without a wait sets no header (the middleware adds it in 5.1).
   - Also test that `ConnectionAcquire(Timeout)`, `Conn` and a SQLSTATE `57014` error give `503`, while a generic `DbErr` gives `500` with `Internal server error`.
   - Commit `feat(TMP01): add conflict and service unavailable errors`.
-- [ ] 2.2 Enable Axum's `macros` feature, add `ApiJson`/`ApiPath`/`ApiQuery` in `src/api/extract.rs` with the `From<*Rejection> for AppError` impls, and switch every handler in `src/api/event_api.rs` to them (design §3).
+- [x] 2.2 Enable Axum's `macros` feature, add `ApiJson`/`ApiPath`/`ApiQuery` in `src/api/extract.rs` with the `From<*Rejection> for AppError` impls, and switch every handler in `src/api/event_api.rs` to them (design §3).
   - Add an `AGENTS.md` layout line for `extract.rs`.
   - Verify with API tests for each "Unparseable requests get a JSON 400" scenario: invalid JSON, wrong type, missing field, missing `Content-Type`, malformed path UUID and `page=abc`. Each must give `400` with a JSON `error` body.
   - Extend `test_http_get_event_by_id_400_bad_uuid` to assert the JSON body.

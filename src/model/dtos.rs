@@ -7,6 +7,8 @@ use uuid::Uuid;
 // --- Query DTOs ---
 
 #[derive(Debug, Clone, Deserialize, IntoParams)]
+// Declared explicitly: utoipa cannot infer the location through `ApiQuery` (ADR-010).
+#[into_params(parameter_in = Query)]
 pub struct EventPaginationQueryDto {
     /// Page number, starting at 1. Defaults to 1; a value of 0 is treated as 1.
     pub page: Option<u64>,

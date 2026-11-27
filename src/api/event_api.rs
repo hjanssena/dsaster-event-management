@@ -1,14 +1,9 @@
-use axum::{
-    Json, Router,
-    body::Bytes,
-    extract::{Path, Query, State},
-    http::StatusCode,
-    routing::get,
-};
+use axum::{Json, Router, body::Bytes, extract::State, http::StatusCode, routing::get};
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::api::auth::AuthenticatedPartner;
+use crate::api::extract::{ApiJson, ApiPath, ApiQuery};
 use crate::core::error::AppError;
 #[allow(unused_imports)]
 use crate::core::error::ErrorResponseDto;
@@ -71,7 +66,7 @@ fn parse_update_event_payload(body: &[u8]) -> Result<UpdateEventRequestDto, AppE
 )]
 pub async fn get_event_by_id(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ApiPath(id): ApiPath<Uuid>,
 ) -> Result<Json<EventResponseDto>, AppError> {
     let event = state.event_service.get_event_by_id(id).await?;
     Ok(Json(event))
@@ -88,13 +83,14 @@ pub async fn get_event_by_id(
     ),
     responses(
         (status = 200, description = "Lista paginada de eventos", body = PaginatedEventSummaryResponse),
+        (status = 400, description = "Malformed query value, such as a non-numeric page", body = ErrorResponseDto),
         (status = 500, description = "Error interno del servidor", body = ErrorResponseDto)
     ),
     tag = "events"
 )]
 pub async fn get_events(
     State(state): State<AppState>,
-    Query(query): Query<EventPaginationQueryDto>,
+    ApiQuery(query): ApiQuery<EventPaginationQueryDto>,
 ) -> Result<Json<PaginatedEventSummaryResponse>, AppError> {
     let result = state.event_service.get_events(query).await?;
     Ok(Json(result))
@@ -110,7 +106,7 @@ pub async fn get_events(
     request_body = CreateEventRequestDto,
     responses(
         (status = 201, description = "Evento creado exitosamente", body = EventConfirmationDto),
-        (status = 400, description = "Nombre o artista vacío, o fecha que no está en el futuro", body = ErrorResponseDto),
+        (status = 400, description = "Malformed request (invalid JSON, wrong type, missing field or Content-Type), empty name or artist, or a date that is not in the future", body = ErrorResponseDto),
         (status = 401, description = "Token ausente o inválido, o partner inexistente", body = ErrorResponseDto),
         (status = 403, description = "El partner autenticado no es organizador", body = ErrorResponseDto),
         (status = 422, description = "Recinto inexistente o inválido", body = ErrorResponseDto),
@@ -124,7 +120,7 @@ pub async fn get_events(
 pub async fn create_event(
     State(state): State<AppState>,
     AuthenticatedPartner(partner): AuthenticatedPartner,
-    Json(payload): Json<CreateEventRequestDto>,
+    ApiJson(payload): ApiJson<CreateEventRequestDto>,
 ) -> Result<(StatusCode, Json<EventConfirmationDto>), AppError> {
     let confirmation = state.event_service.create_event(payload, &partner).await?;
     Ok((StatusCode::CREATED, Json(confirmation)))
@@ -154,7 +150,7 @@ pub async fn create_event(
 pub async fn update_event(
     State(state): State<AppState>,
     AuthenticatedPartner(partner): AuthenticatedPartner,
-    Path(id): Path<Uuid>,
+    ApiPath(id): ApiPath<Uuid>,
     body: Bytes,
 ) -> Result<Json<EventResponseDto>, AppError> {
     let payload = parse_update_event_payload(&body)?;
