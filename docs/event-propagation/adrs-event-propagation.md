@@ -4,36 +4,36 @@
 
 | Status | Date | Capability |
 |---|---|---|
-| Proposed, amended 2026-11-27 | 2026-11-07 | C2 - Select venue and price zones |
+| Proposed, amended 2026-11-27 (twice) | 2026-11-07 | C2 - Select venue and price zones |
 
 ### Context
 
-Changing the venue discards the previous venue's zone prices (C2). Zones belong to Venue Service; Event Service keeps one price row per zone per event in `event_pricing_tiers`, referencing the zone by `venue_zone_id`. Prices stay editable until sales open (PRD US-5, step 6), and no buyer pays before the lock (C5). The PRD asks for no price history.
+Changing the venue discards the previous venue's zone prices (C2). Zones belong to Venue Service, which keeps them in numbered seat map versions that never change once saved; Event Service keeps one price row per zone per event in `event_pricing_tiers`, referencing the zone by `venue_zone_id`. Prices stay editable until sales open (PRD US-5, step 6), and no buyer pays before the lock (C5). The PRD asks for no price history.
 
 ### Decision
 
 On a venue change, Event Service sets `deleted_at` on the previous venue's price rows and inserts one row per new zone with its `venue_zone_id`, a copy of the zone name in the existing `name` column, and the price. The copied name is the snapshot: later layout changes in Venue Service do not alter the event.
 
-Every save of the venue reads its zones from Venue Service again, also when the venue does not change. On the same venue, each zone is handled this way:
+Every save of the venue reads the venue's **latest** seat map version from Venue Service (`GET /venues/{id}/map`), also when the venue does not change, and records its number in `events.venue_map_version`. A venue without a map (`latestMapVersion` `0`) gets `422`. Zones are matched by their map id, which Venue Service keeps stable across versions. On the same venue, each zone is handled this way:
 
 | Zone | Result |
 |---|---|
-| Still in the venue, and in the request | Row updated in place: new price (Pit from `65000` to `70000`, $65 to $70, see ADR-005) and the zone's current name |
-| Still in the venue, left out of the request | Keeps its price; its name is refreshed |
-| No longer in the venue | `deleted_at` is set, whatever the request says |
-| New in the venue | New row; priced if the request includes it, otherwise without a price |
+| Still in the latest map, and in the request | Row updated in place: new price (Pit from `65000` to `70000`, $65 to $70, see ADR-005) and the zone's current name |
+| Still in the latest map, left out of the request | Keeps its price; its name is refreshed |
+| No longer in the latest map | `deleted_at` is set, whatever the request says |
+| New in the latest map | New row; priced if the request includes it, otherwise without a price |
 
-If the request lists the same `venue_zone_id` more than once, the last entry replaces the earlier ones. On a new venue, the zones the request leaves out start without a price. Every read of prices, including the check at Save (C4), ignores rows with `deleted_at` set. Seats live in Venue Service and are not stored here.
+If the request lists the same `venue_zone_id` more than once, the last entry replaces the earlier ones. On a new venue, the zones the request leaves out start without a price. Every read of prices, including the check at Save (C4), ignores rows with `deleted_at` set. Seats live in Venue Service and are not stored here: consumers read them from the event's `venue_map_version`, which never changes.
 
 ### Consequences
 
 - The previous venue's prices stay in the database for later investigation.
 - There is no price history; other services still receive each change through `EventUpdated` (C6).
-- A new migration adds `venue_zone_id` and `deleted_at` to `event_pricing_tiers` and drops the unused `event_seats` table.
+- The schema has `events.venue_map_version` and a string `event_pricing_tiers.venue_zone_id` (map ids are not UUIDs), plus `deleted_at`; the unused `event_seats` table is dropped.
 - A unique index on `event_id` and `venue_zone_id`, if added, must apply only where `deleted_at` is null.
-- Saving the venue again refreshes the snapshot to the venue's current zones and names. Between saves, layout changes in Venue Service never reach the event.
+- Saving the venue again moves the event to the latest map version and refreshes zones and names. Between saves, new map versions never reach the event.
 - On a `Scheduled` event, a zone added to the venue starts without a price, so saving the venue gets `422` (C4) unless the request prices it.
-- This decision needs Venue Service to return each zone's `id` and `name`, which its contract does not do yet (see [Open questions](contract-event-service.md#open-questions)). Venue Service publishes no change events, so the snapshot is the only way to keep an event stable.
+- Venue Service publishes no change events, so the snapshot and the recorded map version are what keep an event stable.
 
 ### Alternatives considered
 
@@ -43,6 +43,10 @@ If the request lists the same `venue_zone_id` more than once, the last entry rep
 ### Amendment - 2026-11-27
 
 The first version did not say what saving the same venue again does. The team decided that every save reads the zones again; a zone left out of the request keeps its price unless the zone no longer exists in the venue, and a duplicate `venue_zone_id` is replaced by its last entry. The decision above now states this.
+
+### Amendment - 2026-11-27 (seat maps)
+
+Venue Service now serves zones and seats in versioned seat maps (`venues` `main`, `88c214b`): `GET /venues/{id}/map[?version=N]`, with zone and seat ids that are strings and stay stable across versions, and stored versions that never change. The decision now reads the zones from the latest map, records the version on the event (`venue_map_version`) so consumers can read the exact seats, and rejects a venue that has no map. `venue_zone_id` changes from a UUID to a string of up to 64 characters.
 
 ## ADR-002 - Use the database clock for the lock and timestamptz for all times
 
@@ -539,7 +543,7 @@ Today the tests run on `MockEventRepository`, an in-memory `HashMap` that re-imp
 - **Tests use real tokens.** A helper in `tests/common` signs `HS256` tokens with a test secret using the same crate as the verifier. It also makes the tokens for `401` tests: expired, wrong secret, wrong algorithm, missing `sub`.
 - **Time comes from real clocks.** Tests set times relative to now. To test a locked event, they write a past `sale_starts_at` straight into the database. The lock uses the database clock, which no Rust trait could fake, so there is no `Clock` trait.
 - **Kafka is real too.** Relay tests run against the Kafka broker in `docker-compose.yml`, at `KAFKA_BROKERS`.
-- **Venue Service is the one exception, for now.** It does not expose zones yet, so `VenueClient` keeps a fake implementation for tests and for local development (`MOCK_VENUE_SERVICE`). The fake is removed once Venue Service exposes zones; tests then call a Venue Service container, or a stub HTTP server if one is not available.
+- **Venue Service is the one exception, for now.** `VenueClient` keeps a fake implementation for tests and for local development (`MOCK_VENUE_SERVICE`). Venue Service has exposed zones through its seat maps since 2026-11-27, so the fake is removed with the venue pricing work; tests then call a Venue Service container, or a stub HTTP server that serves recorded Venue Service responses.
 - **CI** runs PostgreSQL and Kafka as service containers in `.github/workflows/validation.yml`. That file is protected (AGENTS.md), so the change needs its own ticket.
 
 ### Consequences

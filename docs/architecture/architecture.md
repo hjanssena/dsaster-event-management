@@ -64,7 +64,7 @@ src/
 │   ├── mod.rs
 │   ├── dtos.rs                # Request/response payloads with utoipa ToSchema / IntoParams
 │   ├── event.rs               # events table entity
-│   ├── event_pricing_tier.rs  # Zone pricing rows (target: venue_zone_id, deleted_at, i64 USD thousandths)
+│   ├── event_pricing_tier.rs  # Zone pricing rows (target: string venue_zone_id, deleted_at, i64 USD thousandths)
 │   ├── event_sale.rs          # Sales window entity
 │   ├── event_schedule.rs      # Event schedule entity
 │   ├── event_media.rs         # Event media entity
@@ -96,7 +96,7 @@ Event Management owns a single **PostgreSQL** database (`event_store`). It never
    - Event Service **does not call Auth Service at runtime**. Tokens are `HS256` JWTs verified locally using the shared `JWT_SECRET` (`exp`, UUID `sub`, case-insensitive `role = ORGANIZER`).
    - There are no mock tokens (ADR-007, amended 2026-11-27): local development and tests also use `HS256` tokens, signed with their own `JWT_SECRET`. The current code still has `MockTokenVerifier` until the verifier is replaced.
 3. **Venue Management Service (Outbound HTTP — C2, ADR-001, ADR-008)**
-   - Called via `VenueClient` (`GET /venues/{id}` forwarding the organizer's bearer token) to verify venue existence and snapshot zone IDs/names.
+   - Called via `VenueClient` (`GET /venues/{id}` and `GET /venues/{id}/map`, forwarding the organizer's bearer token) to verify the venue and snapshot the zone ids and names of its latest seat map, recording the map version on the event.
    - Protected by per-attempt timeout (`VENUE_SERVICE_TIMEOUT_MS`), exponential backoff with full jitter (`RETRY_*`), and an in-memory circuit breaker (`CIRCUIT_BREAKER_*`). Unavailability or config mismatch (`401`/`403`) returns `503 Service Unavailable` with `Retry-After`.
    - Replaced by `MockVenueClient` when `MOCK_VENUE_SERVICE=true`, the only mock kept until Venue Service exposes zones (ADR-011).
 4. **Event Propagation via Kafka (Planned — C6, ADR-003, ADR-004)**

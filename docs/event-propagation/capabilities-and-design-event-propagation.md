@@ -70,12 +70,14 @@ The endpoints and Kafka messages other services use are described in the [servic
 
 ##### Expectations:
 
-- Organizer selects a venue from the existing venues in Venue Service. Event Service calls `GET /venues/{id}` with the organizer's token; zones come from the venue layout; they are not defined per event. Venue Service does not return zones yet ([Venue Service](contract-event-service.md#venue-service) in the contract).
+- Organizer selects a venue from the existing venues in Venue Service. Event Service calls `GET /venues/{id}` and `GET /venues/{id}/map` with the organizer's token. Zones come from the venue's latest seat map; they are not defined per event ([Venue Service](contract-event-service.md#venue-service) in the contract).
+- A venue without a seat map (`latestMapVersion` `0`) cannot host events: saving it gets `422`.
+- The event records the seat map version it was priced on (`venue_map_version`). Map versions never change, so Booking Service reads the event's seats from exactly that version.
 - Every zone of the selected venue must have a price greater than 0, as an integer in thousandths of a US dollar (`65000` is $65.00).
-- Each zone price references its zone in Venue Service and keeps a copy of the zone name. Zone names are read from Venue Service, never taken from the request.
+- Each zone price references its zone in the seat map by `venue_zone_id` (a string id, stable across map versions) and keeps a copy of the zone name. Zone names are read from Venue Service, never taken from the request.
 - Zones and prices are snapshotted into the event; later changes to the venue layout never alter an existing event.
 - Changing the venue soft-deletes the zone prices of the previous venue; soft-deleted prices are never used.
-- Every save reads the venue's zones from Venue Service again, also for the same venue. A zone left out of the request keeps its price; a zone no longer in the venue is soft-deleted; a new zone starts without a price. A zone listed twice takes its last price.
+- Every save reads the venue's latest seat map again, also for the same venue, and records its version. A zone left out of the request keeps its price; a zone no longer in the map is soft-deleted; a new zone starts without a price. A zone listed twice takes its last price.
 
 **ADRs:** [ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes), [ADR-005](adrs-event-propagation.md#adr-005---prices-in-us-dollars-as-integer-thousandths)
 
@@ -85,7 +87,7 @@ The endpoints and Kafka messages other services use are described in the [servic
 
 [![image.png](diagrams/c2-zone-snapshot.png)\[Zone snapshot\]](diagrams/c2-zone-snapshot.png)
 
-Event Service reads the zones from Venue Service when the venue is saved and copies them into the event with their prices. A draft can be saved with missing prices; the check that every zone is priced happens when the event is scheduled (C4).
+Event Service reads the zones from the venue's latest seat map when the venue is saved and copies them into the event with their prices and the map version. A draft can be saved with missing prices; the check that every zone is priced happens when the event is scheduled (C4).
 
 **Edge cases:**
 
@@ -127,7 +129,7 @@ Event Service reads the zones from Venue Service when the venue is saved and cop
 
 - When the organizer clicks Save, the event moves from `Draft` to `Scheduled` only if the name, all zone prices, the sales window and the show details are valid.
 - Every zone of the selected venue must have a price greater than 0; an event with an unpriced zone stays in `Draft`.
-- The event needs at least one priced zone, so a venue with no zones cannot pass the check (assumption, see [open questions](contract-event-service.md#open-questions)).
+- The event needs at least one priced zone. A seat map may have a stage and no zones, so "every zone priced" alone would pass with none; scheduling such an event gets `422`.
 - The sales window is checked again at Save against server time, since `now` may have passed `sale_starts_at` after the window was saved.
 - Scheduling increments `version`. Scheduling an event that is already `Scheduled` returns it unchanged until sales open; after that it gets `409` (C5).
 
@@ -185,7 +187,7 @@ In the race above the application check passes, but the database clock has alrea
 - No `EventUpdated` is sent after sales open. A late `EventPublished` can still be sent if the publish job was down when sales opened, because Booking Service needs the event.
 - Edits between propagation and the lock emit an `EventUpdated` event carrying the event version; consumers discard any version older than or equal to the one they have.
 - Every change increments the event's `version` in the same update that saves it: each accepted edit, scheduling and publication.
-- Every `EventPublished` and `EventUpdated` message carries the full event (show details, zone prices and sales window) and its version. Each zone carries its `venue_zone_id`; seats are not included.
+- Every `EventPublished` and `EventUpdated` message carries the full event (show details, zone prices and sales window) and its version. Each zone carries its `venue_zone_id`, and the event carries `venue_map_version`; seats are not included. Consumers read seats from that map version in Venue Service.
 - Whether an edit emits `EventUpdated` depends on `published_at` as returned by the edit's own update, so an edit racing the scheduled job is never left unpublished.
 - A scheduled job in Event Service runs every `EVENT_PUBLISH_JOB_INTERVAL_SECONDS`, finds events that reached their visibility moment and publishes them.
 - Events are published to the Kafka topic `events.lifecycle` (set by `KAFKA_EVENTS_TOPIC`), keyed by event id, so all messages for one event keep their order.

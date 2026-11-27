@@ -12,7 +12,7 @@ This document defines the **target PostgreSQL data model** for the Event Managem
 | **Schedule, sales window & poster** | **Flatten onto `events`** (`event_starts_at`, `doors_open_at`, `sale_starts_at`, `sale_ends_at`, `poster_url`) and **drop `event_schedules`, `event_sales`, and `event_media`**. | Matches the 1:1 target Event contract and allows ADR-002 / ADR-004's single-statement conditional lock & version increment (`UPDATE events ... WHERE status = 'Draft' OR sale_starts_at > now() RETURNING *`) without joins. |
 | **Opening acts (`support_acts`)** | **`TEXT[]` column on `events`**, in billing order (decided 2026-11-27; replaces the earlier `event_support_acts` child table). | Same reason as flattening the schedule: an edit stays one `UPDATE events ... RETURNING *`, and the event payload needs no join. A Postgres array keeps its order. Needs SeaORM's `postgres-array` feature (no new crate). |
 | **Legacy event fields** | **Drop `event_type`, `age_policy`, and `terms`**. | Not part of C1 or the v1 service contract; keeps the schema aligned strictly with the contract. |
-| **Zone pricing (`event_pricing_tiers`)** | **Keep table name `event_pricing_tiers`** (per ADR-001), store `price` as **nullable `bigint`** (`CHECK (price IS NULL OR price > 0)`), add `venue_zone_id` and `deleted_at`, drop `description` and `event_seats`. | Supports saving a draft after selecting a venue before every zone is priced (C2), enforces integer USD thousandths (ADR-005), and soft-deletes prior venue prices on venue change (ADR-001). |
+| **Zone pricing (`event_pricing_tiers`)** | **Keep table name `event_pricing_tiers`** (per ADR-001), store `price` as **nullable `bigint`** (`CHECK (price IS NULL OR price > 0)`), add `venue_zone_id` (a string: Venue Service seat map ids are not UUIDs) and `deleted_at`, drop `description` and `event_seats`. | Supports saving a draft after selecting a venue before every zone is priced (C2), enforces integer USD thousandths (ADR-005), and soft-deletes prior venue prices on venue change (ADR-001). |
 
 ---
 
@@ -27,6 +27,7 @@ erDiagram
         uuid id PK "Event UUID (Kafka message key)"
         uuid organizer_id "JWT sub (no local FK)"
         uuid venue_id "Nullable on Draft; Venue Service UUID"
+        integer venue_map_version "Seat map version the zones came from; set with venue_id"
         varchar name "1-200 characters"
         varchar artist "1-200 characters; nullable on Draft; required to schedule"
         varchar tour "Optional; 1-200 characters"
@@ -47,7 +48,7 @@ erDiagram
     event_pricing_tiers {
         uuid id PK "Pricing row UUID"
         uuid event_id FK "References events.id (CASCADE)"
-        uuid venue_zone_id "Zone UUID in Venue Service"
+        varchar venue_zone_id "Zone id in the seat map (string, not UUID)"
         varchar name "Zone name snapshotted from Venue Service (ADR-001)"
         bigint price "Nullable on Draft; USD thousandths > 0 (ADR-005)"
         varchar currency "Always USD (ADR-005)"
@@ -91,6 +92,7 @@ Aggregate root for an event across its lifecycle (`Draft` → `Scheduled` → Pu
 | `id` | `UUID` | No | — | `PRIMARY KEY` (server-generated UUID v4) |
 | `organizer_id` | `UUID` | No | — | Taken strictly from verified JWT `sub` (ADR-007) |
 | `venue_id` | `UUID` | Yes | `NULL` | Venue UUID in Venue Service; required before scheduling (C4) |
+| `venue_map_version` | `INTEGER` | Yes | `NULL` | `CHECK (venue_map_version IS NULL OR venue_map_version >= 1)`. Version of the venue's seat map the zones were read from (ADR-001); updated on every venue save. Consumers read seats as `GET /venues/{venue_id}/map?version={venue_map_version}` |
 | `name` | `VARCHAR(200)` | No | — | `CHECK (btrim(name) <> '')` |
 | `artist` | `VARCHAR(200)` | Yes | `NULL` | `CHECK (artist IS NULL OR btrim(artist) <> '')`; required to schedule (C4) |
 | `tour` | `VARCHAR(200)` | Yes | `NULL` | `CHECK (tour IS NULL OR btrim(tour) <> '')` |
@@ -108,6 +110,7 @@ Aggregate root for an event across its lifecycle (`Draft` → `Scheduled` → Pu
 | `updated_at` | `TIMESTAMPTZ` | No | `now()` | Last accepted update time |
 
 **Table-level `CHECK` constraints:**
+- `chk_events_venue_pair`: `(venue_id IS NULL) = (venue_map_version IS NULL)`
 - `chk_events_doors_order`: `doors_open_at IS NULL OR event_starts_at IS NULL OR doors_open_at <= event_starts_at`
 - `chk_events_sales_window_pair`: `(sale_starts_at IS NULL AND sale_ends_at IS NULL) OR (sale_starts_at IS NOT NULL AND sale_ends_at IS NOT NULL AND sale_starts_at < sale_ends_at)`
 - `chk_events_sales_before_show`: `sale_ends_at IS NULL OR event_starts_at IS NULL OR sale_ends_at <= event_starts_at`
@@ -116,6 +119,7 @@ Aggregate root for an event across its lifecycle (`Draft` → `Scheduled` → Pu
   status <> 'Scheduled' OR (
       artist IS NOT NULL
       AND venue_id IS NOT NULL
+      AND venue_map_version IS NOT NULL
       AND event_starts_at IS NOT NULL
       AND sale_starts_at IS NOT NULL
       AND sale_ends_at IS NOT NULL
@@ -143,7 +147,7 @@ Stores one snapshotted zone pricing row per active venue zone of an event (C2, A
 |---|---|---|---|---|
 | `id` | `UUID` | No | — | `PRIMARY KEY` |
 | `event_id` | `UUID` | No | — | `REFERENCES events(id) ON DELETE CASCADE` |
-| `venue_zone_id` | `UUID` | No | — | Zone UUID in Venue Service |
+| `venue_zone_id` | `VARCHAR(64)` | No | — | Zone id in the venue's seat map, `CHECK (venue_zone_id ~ '^[A-Za-z0-9_-]{1,64}$')`. Venue Service keeps it stable across map versions |
 | `name` | `VARCHAR(255)` | No | — | Zone name snapshotted from Venue Service; never accepted from client (ADR-007) |
 | `price` | `BIGINT` | Yes | `NULL` | `CHECK (price IS NULL OR price > 0)`; thousandths of USD; nullable only while `Draft` |
 | `currency` | `VARCHAR(3)` | No | `'USD'` | `CHECK (currency = 'USD')` (ADR-005) |
@@ -156,7 +160,7 @@ Stores one snapshotted zone pricing row per active venue zone of an event (C2, A
 
 **Query rules:**
 - Every read of zone prices—including `GET`, `min_price` computation, Kafka payload assembly, and the C4 schedule check (at least 1 active row, and zero active rows with `price IS NULL`)—MUST filter `WHERE deleted_at IS NULL`.
-- Every `PUT /api/v1/events/{id}/venue` reads the venue's zones from Venue Service again (ADR-001, amended 2026-11-27). On the same venue: zones still in the venue update their active row in place (current name; new price if the request has one, otherwise the price stays); zones no longer in the venue get `deleted_at = now()`; new zones get a row, without a price unless the request has one. A `venue_zone_id` listed twice in the request takes its last entry. Changing `venue_id` sets `deleted_at = now()` on existing active rows and inserts snapshots for the new venue's zones inside the same transaction.
+- Every `PUT /api/v1/events/{id}/venue` reads the venue's latest seat map from Venue Service again and sets `events.venue_map_version` to its version (ADR-001, amended 2026-11-27). A venue without a map gets `422`. Zones are matched by `venue_zone_id`. On the same venue: zones still in the latest map update their active row in place (current name; new price if the request has one, otherwise the price stays); zones no longer in the latest map get `deleted_at = now()`; new zones get a row, without a price unless the request has one. A `venue_zone_id` listed twice in the request takes its last entry. Changing `venue_id` sets `deleted_at = now()` on existing active rows and inserts snapshots for the new venue's zones inside the same transaction.
 
 ---
 

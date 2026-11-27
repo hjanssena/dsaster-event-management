@@ -15,7 +15,7 @@ graph TD
     subgraph "External Systems"
         Client["Clients (Fan & Organizer Frontends)"]:::external
         AuthServiceExt["Auth Service (issues HS256 JWTs — not called at runtime)"]:::external
-        VenueServiceExt["Venue Management Service (GET /venues/{id})"]:::external
+        VenueServiceExt["Venue Management Service (GET /venues/{id}, GET /venues/{id}/map)"]:::external
         DB[("PostgreSQL (event_store)")]:::database
         Kafka[["Kafka (events.lifecycle) — planned (C6)"]]:::broker
         BookingExt["Booking Service (group: booking-service)"]:::external
@@ -99,7 +99,7 @@ graph TD
    - Owns all business validation, lifecycle transitions, ownership checks, and external client orchestration. Contains no HTTP types.
    - `EventService`: Orchestrates event creation, edits, venue/zone pricing snapshots, sales-window rules, scheduling, and lock enforcement.
    - `AuthService` & `TokenVerifier`: Verifies bearer tokens locally. Per amended ADR-007 and ADR-008, production verification uses `HS256` with the shared `JWT_SECRET` (no runtime network call to Auth Service). There are no mock tokens in the target design (ADR-007, amended 2026-11-27); `MockTokenVerifier` exists only until the verifier is replaced.
-   - `VenueClient`: Trait (`HttpVenueClient` / `MockVenueClient`) communicating with Venue Service via `reqwest`. Calls `GET /venues/{id}` forwarding the organizer's bearer token to validate venues and snapshot zone metadata, protected by per-attempt timeout, full-jitter retries, and a circuit breaker (ADR-008).
+   - `VenueClient`: Trait (`HttpVenueClient` / `MockVenueClient`) communicating with Venue Service via `reqwest`. Calls `GET /venues/{id}` and `GET /venues/{id}/map` forwarding the organizer's bearer token to validate venues and snapshot the zones of the latest seat map, protected by per-attempt timeout, full-jitter retries, and a circuit breaker (ADR-008).
 
 3. **Background Workers (Planned — ADR-003, ADR-004, ADR-008, ADR-009)**
    - **Publish Scheduler:** Runs every `EVENT_PUBLISH_JOB_INTERVAL_SECONDS` against PostgreSQL only (no token or external calls). Marks `Scheduled` events as published once `sale_starts_at - EVENT_VISIBILITY_LEAD_DAYS <= now()`, writes `EventPublished` to the outbox in the same transaction, and purges expired `idempotency_keys`.
@@ -111,7 +111,7 @@ graph TD
 
 5. **Domain & Model Layer (`src/model`)**
    - Defines SeaORM entities and API/Kafka DTOs (`dtos.rs`).
-   - **No seat storage:** Seats belong to Venue Service. Event Service snapshots only venue zones (`venue_zone_id`, copied `name`, and `price` as `i64` thousandths of USD per ADR-001 and ADR-005). The legacy `event_seats` table is unused and scheduled to be dropped.
+   - **No seat storage:** Seats belong to Venue Service. Event Service snapshots only venue zones (string `venue_zone_id`, copied `name`, and `price` as `i64` thousandths of USD per ADR-001 and ADR-005) and records the seat map version (`venue_map_version`), from which consumers read the seats. The legacy `event_seats` table is unused and scheduled to be dropped.
 
 6. **External Systems**
    - **PostgreSQL (`event_store`):** Sole persistent database owned by this microservice.

@@ -33,24 +33,27 @@ This is what Event Service offers other services: HTTP endpoints to read and bui
 
 ## Services Event Service calls
 
-Reviewed against `venues` `main` (`c01e597`, `openapi.json` version `1.0.0`) on 2026-11-16, and `TicketDSaster-Auth` `main` (`9e1fcf4`) on 2026-11-27. Gaps are listed in [Open questions](#open-questions).
+Reviewed against `venues` `main` (`88c214b`, `openapi.json` version `1.0.0`, [`docs/api.md`](https://github.com/HectorBarrera13/venues/blob/main/docs/api.md), [`docs/map-format.md`](https://github.com/HectorBarrera13/venues/blob/main/docs/map-format.md)) and `TicketDSaster-Auth` `main` (`9e1fcf4`), both on 2026-11-27. Gaps are listed in [Open questions](#open-questions).
 
 ### Venue Service
 
 | Item | Contract today |
 |---|---|
-| Endpoint used | `GET /venues/{id}` (alias `/api/venues/{id}`). There is no `/api/v1` prefix. |
-| Auth | Bearer JWT required on every endpoint, role `VENUE_OWNER` or `ORGANIZER`. Event Service forwards the organizer's token; Auth Service has no service role. |
-| Response | `id`, `name`, `description`, `location` (free text address), `ownerId`, `createdAt`. |
-| Zones | Stored by Venue Service (`id`, `name`, unique per venue, with seats), but **no endpoint returns or creates them**. `PUT /api/v1/events/{id}/venue` cannot snapshot zones until this exists. |
+| Endpoints used | `GET /venues/{id}` for the venue, then `GET /venues/{id}/map` for its latest seat map (aliases under `/api/venues`). There is no `/api/v1` prefix. |
+| Auth | Bearer JWT (`HS256`, shared `JWT_SECRET`) on every endpoint. `GET /venues/{id}` accepts any signed-in role; `GET /venues/{id}/map` accepts `VENUE_OWNER` and `ORGANIZER`. Event Service forwards the organizer's token, so it needs no token of its own. Auth Service has no service role. |
+| Venue | `id` (UUID), `name`, `description`, `address`, `city`, `country` (ISO 3166-1 alpha-2), `location` (`lat`, `lng`), `ownerId`, `createdAt`, and `latestMapVersion` (`0` while the venue has no seat map). |
+| Seat map | Numbered versions (`1`, `2`, ...). Each saved map is a new version, and a stored version never changes. A version has a stage, `zones` (`id`, `name`, `outline`) and `seats` (`id`, `label`, `row`, `zone`, `position`). Every zone has at least one seat, and every seat belongs to a zone. |
+| Ids | Zone and seat ids are strings matching `^[A-Za-z0-9_-]{1,64}$`, not UUIDs. They are unique within a map and stay the same across versions when an element is moved or renamed; a deleted element's id is never reused. Venue Service asks consumers to reference a seat as `(venueId, mapVersion, seatId)`. |
+| Size | A map holds up to 200 zones and 50,000 seats (bodies up to 10 MB). There is no endpoint that returns only the zones, so `VENUE_SERVICE_TIMEOUT_MS` must cover reading a whole map. |
 | Time zone | Not available. A venue has no time zone field. |
-| Errors | `401`, `403`, `404`, `500`, with body `{"error": "..."}`. |
-| Change notifications | None. This is why zones are snapshotted into the event ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)). |
+| Errors | `400`, `401`, `403`, `404`, `500` (and `501` for a route that is not implemented), with body `{"error": "..."}`. |
+| Change notifications | None. Instead, the event records the map version it was priced on ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)). |
 
 | Venue Service answers | Event Service returns |
 |---|---|
-| `200` | Continues with the venue's zones. |
-| `404` | `422` venue does not exist. |
+| `200` with `latestMapVersion: 0`, or `404` from `GET /venues/{id}/map` | `422` the venue has no seat map yet, so it cannot host events. |
+| `200` with a map | Continues with the zones of that map version. |
+| `404` from `GET /venues/{id}` | `422` venue does not exist. |
 | `401` or `403` | `503` with `Retry-After`, logged as a configuration error. Event Service has already verified the same token with the same secret, so this means the two services disagree (see [Open questions](#open-questions)). |
 | Timeout, connection error, `429`, `5xx` | Retried, then `503` with `Retry-After` ([ADR-008](adrs-event-propagation.md#adr-008---timeouts-retries-idempotency-and-circuit-breakers-on-every-call)). |
 
@@ -102,8 +105,9 @@ The same object is returned by `GET /api/v1/events/{id}` and carried in every Ka
 | `description` | string, optional | Free text. |
 | `poster_url` | string, optional | Poster image URL. |
 | `venue_id` | UUID | Venue in Venue Service. Null only on a draft. |
+| `venue_map_version` | integer | Version of the venue's seat map the zones were taken from. Seats are read from Venue Service as `GET /venues/{venue_id}/map?version={venue_map_version}`. Null only on a draft. |
 | `currency` | `USD` | Always `USD`. |
-| `zones` | Zone[] | One per zone of the venue, snapshotted when the venue was saved ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)). |
+| `zones` | Zone[] | One per zone of that map version, snapshotted when the venue was saved ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)). |
 | `sales_window` | object | `starts_at` and `ends_at`, both UTC. Null only on a draft. |
 | `published_at` | UTC time | When the event became public. Null until published. |
 | `created_at`, `updated_at` | UTC time | Record timestamps. |
@@ -112,7 +116,7 @@ The same object is returned by `GET /api/v1/events/{id}` and carried in every Ka
 
 | Field | Type | Description |
 |---|---|---|
-| `venue_zone_id` | UUID | Zone id in Venue Service. |
+| `venue_zone_id` | string | Zone id in the seat map (`^[A-Za-z0-9_-]{1,64}$`, not a UUID). Seats of the zone are the map's seats whose `zone` is this id. |
 | `name` | string | Zone name copied from Venue Service when the venue was saved. |
 | `price` | integer | Thousandths of a US dollar, greater than `0`. Null only on a draft. |
 
@@ -146,11 +150,12 @@ Example of a published event:
   "description": "One night only.",
   "poster_url": "https://cdn.example.com/posters/6f1c2a9e.jpg",
   "venue_id": "33333333-3333-3333-3333-333333333333",
+  "venue_map_version": 2,
   "currency": "USD",
   "zones": [
-    { "venue_zone_id": "a1d6c7e0-0001-4b1a-9c11-000000000001", "name": "Pit", "price": 65000 },
-    { "venue_zone_id": "a1d6c7e0-0002-4b1a-9c11-000000000002", "name": "Lower Tier", "price": 45500 },
-    { "venue_zone_id": "a1d6c7e0-0003-4b1a-9c11-000000000003", "name": "Upper Tier", "price": 30000 }
+    { "venue_zone_id": "z-pit", "name": "Pit", "price": 65000 },
+    { "venue_zone_id": "z-lower", "name": "Lower Tier", "price": 45500 },
+    { "venue_zone_id": "z-upper", "name": "Upper Tier", "price": 30000 }
   ],
   "sales_window": {
     "starts_at": "2026-12-01T16:00:00Z",
@@ -232,7 +237,7 @@ A request that sends a field Event Service owns (`id`, `organizer_id`, `status`,
 | `GET /api/v1/events/mine` | - | Query `page`, `per_page`, optional `status` | `200`, page of the caller's events in any state, most recently updated first ([details](#get-apiv1eventsmine)). The organizer comes from the token; there is no `organizer_id` parameter. | `400` unknown `status` |
 | `POST /api/v1/events` | C1 | Header `Idempotency-Key` (UUID, required). `name` (required) and any show details. | `201`, event with `status: Draft`, `version: 1`. A repeat with the same key returns the first response. A repeat sent while the first request is still running waits for it, then returns the same response. | `400` missing `Idempotency-Key`; `422` empty name, time without offset, or same key with a different body; `503` the repeat waited longer than `DB_STATEMENT_TIMEOUT_MS` |
 | `PATCH /api/v1/events/{id}` | C1 | Any of `name`, `artist`, `tour`, `support_acts`, `event_starts_at`, `doors_open_at`, `description`, `poster_url`. Omitted fields stay; `null` clears an optional field. | `200` | `422` a field outside its [limit](#field-limits), time without offset, `doors_open_at` after `event_starts_at`, `event_starts_at` earlier than `sales_window.ends_at`, or, on a `Scheduled` event, clearing `artist` or `event_starts_at` |
-| `PUT /api/v1/events/{id}/venue` | C2 | `venue_id` and `zones: [{ "venue_zone_id", "price" }]`, `price` required in each entry. Zones may be left out ([rules](#saving-the-venue)). | `200`, zones read again from Venue Service and snapshotted | `422` price not greater than 0, venue does not exist, a zone is not in the venue, or, on a `Scheduled` event, a zone left without a price |
+| `PUT /api/v1/events/{id}/venue` | C2 | `venue_id` and `zones: [{ "venue_zone_id", "price" }]`, `price` required in each entry. Zones may be left out ([rules](#saving-the-venue)). | `200`, zones read again from the venue's latest seat map and snapshotted, with its `venue_map_version` | `422` price not greater than 0, venue does not exist, venue has no seat map, a zone is not in the map, or, on a `Scheduled` event, a zone left without a price |
 | `PUT /api/v1/events/{id}/sales-window` | C3 | `starts_at`, `ends_at` | `200` | `422` breaks `now < starts_at < ends_at <= event_starts_at` (server time) |
 | `POST /api/v1/events/{id}/schedule` | C4 | None | `200`, `status: Scheduled`, `version` increased; `published_at` set if the visibility moment has passed. Scheduling an event that is already `Scheduled` returns `200` with the event unchanged, until sales open. | `409` already `Scheduled` and sales have opened; `422` a check failed (including sales open already passed on a draft), with the first failing check in `error` |
 
@@ -262,16 +267,16 @@ The page uses the same envelope as the public list (`items`, `page`, `per_page`,
 
 #### Saving the venue
 
-Every `PUT /api/v1/events/{id}/venue` reads the venue's zones from Venue Service again, also when the venue does not change ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)).
+Every `PUT /api/v1/events/{id}/venue` reads the venue's **latest** seat map from Venue Service again, also when the venue does not change, and records its version as `venue_map_version` ([ADR-001](adrs-event-propagation.md#adr-001---soft-delete-zone-prices-when-the-venue-changes)). Zones are matched by `venue_zone_id`, which stays the same across map versions.
 
 | Zone | Same venue | New venue |
 |---|---|---|
 | In the venue and in the request | Takes the request's price | Takes the request's price |
 | In the venue, left out of the request | Keeps its current price | No price yet |
-| No longer in the venue | Removed from the event, whatever the request says | - |
-| In the request but not in the venue | `422` | `422` |
+| No longer in the latest map | Removed from the event, whatever the request says | - |
+| In the request but not in the latest map | `422` | `422` |
 
-Zone names are refreshed from Venue Service on every save. If the request lists the same `venue_zone_id` more than once, the last entry replaces the earlier ones. A `Scheduled` event must still have every zone priced afterwards, or the save gets `422`.
+Zone names are refreshed from the map on every save. A venue whose `latestMapVersion` is `0` has no seat map and gets `422`. If the request lists the same `venue_zone_id` more than once, the last entry replaces the earlier ones. A `Scheduled` event must still have every zone priced afterwards, or the save gets `422`.
 
 ### Retries and idempotency
 
@@ -290,9 +295,9 @@ Example `PUT /api/v1/events/{id}/venue` body:
 {
   "venue_id": "33333333-3333-3333-3333-333333333333",
   "zones": [
-    { "venue_zone_id": "a1d6c7e0-0001-4b1a-9c11-000000000001", "price": 65000 },
-    { "venue_zone_id": "a1d6c7e0-0002-4b1a-9c11-000000000002", "price": 45500 },
-    { "venue_zone_id": "a1d6c7e0-0003-4b1a-9c11-000000000003", "price": 30000 }
+    { "venue_zone_id": "z-pit", "price": 65000 },
+    { "venue_zone_id": "z-lower", "price": 45500 },
+    { "venue_zone_id": "z-upper", "price": 30000 }
   ]
 }
 ```
@@ -376,7 +381,7 @@ The current `openapi.yml` (generated from `main`) differs from this contract. Co
 | Current | This contract | Reason |
 |---|---|---|
 | `price`, `min_price` are decimal strings with a free `currency` | Integers in thousandths of USD; `currency` always `USD` | ADR-005 |
-| `pricing_tiers[]` with `id`, `name`, `description` | `zones[]` with `venue_zone_id`, `name`, `price` | C2, ADR-001 |
+| `pricing_tiers[]` with `id`, `name`, `description` | `zones[]` with `venue_zone_id`, `name`, `price`, and the event's `venue_map_version` | C2, ADR-001 |
 | `schedules[]` and `sales[]` arrays | `event_starts_at`, `doors_open_at` and one `sales_window` | C1, C3 |
 | `media[]` | `poster_url` | C1 |
 | `POST` requires `name`, `artist`, `date`, `venue_id` and creates `Scheduled` | `POST` requires `name` and creates `Draft`; venue, window and scheduling have their own endpoints | C1-C4 |
@@ -397,14 +402,12 @@ The current `openapi.yml` (generated from `main`) differs from this contract. Co
 |---|---|---|
 | Will the token get `iss` and `aud` claims? ADR-007 checks the issuer once it exists. | Auth Service | Verify `HS256` signature, `exp`, `sub` and `role` only. |
 | Will there be a token refresh? An 8-hour token can expire while an organizer edits a draft. | Auth Service | No refresh. The organizer logs in again; the draft is already saved step by step (C1). |
-| How does Venue Service expose a venue's zones (`id`, `name`), and how are zones created? | Venue Service | Proposal: `zones` in `GET /venues/{id}`, or `GET /venues/{id}/zones`. Blocks `PUT /api/v1/events/{id}/venue` (C2) and the schedule check (C4). Develop against `MockVenueClient`. |
-| Do zone ids stay the same when a venue owner edits the layout? | Venue Service | Yes. The event keeps its snapshot either way, but consumers match seats by `venue_zone_id`. |
-| How does Booking Service get the seats of each zone? Messages carry zones and prices, not seats, and Venue Service has no seats endpoint. | Booking Service, Venue Service | Booking reads seats from Venue Service by `venue_zone_id`, once that endpoint exists. |
-| Can an event be scheduled at a venue with no zones? Without a rule, "every zone priced" passes when there are none. | Product | No. Scheduling needs at least one priced zone (`422`). |
+| How does Booking Service read the seats of an event? | Booking Service, Venue Service | Settled on 2026-11-27: Venue Service serves seats in its seat maps, and a map version never changes. Booking reads `GET /venues/{venue_id}/map?version={venue_map_version}` and takes the seats whose `zone` is the zone's `venue_zone_id`. What is still open is the token: that endpoint accepts only `VENUE_OWNER` and `ORGANIZER`, and Auth Service has no service role. |
+| A map holds up to 50,000 seats and there is no zones-only endpoint. Is `VENUE_SERVICE_TIMEOUT_MS` (`2000`) enough to read one? | Event Service, Venue Service | Measure against a large map before release. Raise the variable, or ask Venue Service for a zones-only read, if it is not. |
 | What does a `401` or `403` from Venue Service mean, when Event Service already accepted the same token? | Event Service, Venue Service | A configuration mismatch (secret or role names). Returned as `503` and logged, never passed to the organizer as `401`. |
 | Must prices be whole cents (multiples of 10)? | Payment / Booking | Event Service accepts any positive integer (ADR-005). |
 | Which show details are required to schedule? | Product | `name`, `artist`, `event_starts_at`, venue with every zone priced, and sales window. `tour`, `support_acts`, `doors_open_at`, `description` and `poster_url` are optional. |
-| Should events carry the venue name and time zone? Venue Service has no time zone field, and every venue endpoint requires a `VENUE_OWNER` or `ORGANIZER` token, so fans, Search Service and Booking Service cannot read venues today. | Venue Service, Search Service, Booking Service | No. Consumers read them from Venue Service by `venue_id`, which needs a public or service-to-service read and a time zone (IANA name, e.g. `America/Mexico_City`) on the venue. |
+| Should events carry the venue name and time zone? Venue Service has no time zone field, and every venue endpoint requires a token (`GET /venues/{id}` any signed-in role, the map `VENUE_OWNER` or `ORGANIZER`), while Auth Service issues only `VENUE_OWNER` and `ORGANIZER` tokens. So fans, Search Service and Booking Service cannot read venues today. | Venue Service, Search Service, Booking Service | No. Consumers read them from Venue Service by `venue_id`, which needs a public or service-to-service read and a time zone (IANA name, e.g. `America/Mexico_City`) on the venue. |
 | Keep `event_type`, `age_policy` and `terms`? | Product | Not in C1 or the v1 contract; dropped in the target [data model](../architecture/data-model.md) and can be re-introduced later if Product requests them. |
 | Cancellation after sales open | Product | Not designed. No message type exists for it. |
 | Retention of `events.lifecycle` | Platform | Log compaction (`cleanup.policy=compact`), so a new consumer can read the latest state of every public event from the topic. |
