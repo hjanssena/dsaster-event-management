@@ -107,6 +107,28 @@ pub struct UpdateEventStatusDto {
     pub status: String,
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateEventRequestDto {
+    #[schema(example = "Muse World Tour Updated")]
+    pub name: Option<String>,
+    #[schema(example = "Muse")]
+    pub artist: Option<String>,
+    #[schema(example = "2099-08-20T20:00:00Z")]
+    pub date: Option<DateTime<Utc>>,
+    pub schedule_id: Option<Uuid>,
+    #[serde(alias = "venueId")]
+    pub venue_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventUpdateChanges {
+    pub name: Option<String>,
+    pub artist: Option<String>,
+    pub venue_id: Option<Uuid>,
+    pub schedule_update: Option<(Uuid, DateTime<Utc>)>,
+}
+
 // --- Response DTOs para Relaciones Hijas ---
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]

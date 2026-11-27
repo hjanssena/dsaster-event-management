@@ -1,5 +1,6 @@
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
@@ -13,8 +14,43 @@ use crate::core::error::AppError;
 use crate::core::error::ErrorResponseDto;
 use crate::model::dtos::{
     CreateEventRequestDto, EventConfirmationDto, EventPaginationQueryDto, EventResponseDto,
-    PaginatedEventSummaryResponse,
+    PaginatedEventSummaryResponse, UpdateEventRequestDto,
 };
+
+const SERVER_OWNED_EVENT_FIELDS: &[&str] = &[
+    "id",
+    "organizer_id",
+    "organizerId",
+    "status",
+    "created_at",
+    "createdAt",
+    "updated_at",
+    "updatedAt",
+    "version",
+    "published_at",
+    "publishedAt",
+];
+
+fn parse_update_event_payload(body: &[u8]) -> Result<UpdateEventRequestDto, AppError> {
+    let value: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|_| AppError::BadRequest("Invalid JSON request body".to_string()))?;
+
+    let object = value
+        .as_object()
+        .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
+
+    for field in SERVER_OWNED_EVENT_FIELDS {
+        if object.contains_key(*field) {
+            return Err(AppError::BadRequest(format!(
+                "Server-owned field '{}' cannot be modified",
+                field
+            )));
+        }
+    }
+
+    serde_json::from_value::<UpdateEventRequestDto>(value)
+        .map_err(|err| AppError::BadRequest(format!("Invalid update payload: {}", err)))
+}
 
 /// Get the complete event detail.
 ///
@@ -94,9 +130,44 @@ pub async fn create_event(
     Ok((StatusCode::CREATED, Json(confirmation)))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/events/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Unique event UUID")
+    ),
+    request_body = UpdateEventRequestDto,
+    responses(
+        (status = 200, description = "Updated event detail", body = EventResponseDto),
+        (status = 400, description = "Invalid payload, server-owned field, empty text, past date, or missing schedule_id", body = ErrorResponseDto),
+        (status = 401, description = "Missing, invalid, or unknown partner bearer token", body = ErrorResponseDto),
+        (status = 403, description = "Authenticated partner is not the owning organizer", body = ErrorResponseDto),
+        (status = 404, description = "Event not found", body = ErrorResponseDto),
+        (status = 422, description = "Target venue or schedule_id is invalid or does not exist", body = ErrorResponseDto),
+        (status = 500, description = "Internal server or persistence error", body = ErrorResponseDto)
+    ),
+    security(
+        ("bearer_auth" = [])
+    ),
+    tag = "events"
+)]
+pub async fn update_event(
+    State(state): State<AppState>,
+    AuthenticatedPartner(partner): AuthenticatedPartner,
+    Path(id): Path<Uuid>,
+    body: Bytes,
+) -> Result<Json<EventResponseDto>, AppError> {
+    let payload = parse_update_event_payload(&body)?;
+    let updated = state
+        .event_service
+        .update_event(id, payload, &partner)
+        .await?;
+    Ok(Json(updated))
+}
+
 /// Crea el sub-enrutador de Axum para las rutas de eventos
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(get_events).post(create_event))
-        .route("/:id", get(get_event_by_id))
+        .route("/:id", get(get_event_by_id).patch(update_event))
 }

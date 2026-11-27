@@ -230,6 +230,69 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
+    patch:
+      tags:
+      - events
+      operationId: update_event
+      parameters:
+      - name: id
+        in: path
+        description: Unique event UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventRequestDto'
+        required: true
+      responses:
+        '200':
+          description: Updated event detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponseDto'
+        '400':
+          description: Invalid payload, server-owned field, empty text, past date, or missing schedule_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '401':
+          description: Missing, invalid, or unknown partner bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '403':
+          description: Authenticated partner is not the owning organizer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '422':
+          description: Target venue or schedule_id is invalid or does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+        '500':
+          description: Internal server or persistence error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+      security:
+      - bearer_auth: []
   /health:
     get:
       tags:
@@ -583,6 +646,31 @@ components:
           format: int64
           description: Number of pages for the selected page size. Zero when no events match.
           minimum: 0
+    UpdateEventRequestDto:
+      type: object
+      properties:
+        artist:
+          type: string
+          example: Muse
+          nullable: true
+        date:
+          type: string
+          format: date-time
+          example: 2099-08-20T20:00:00Z
+          nullable: true
+        name:
+          type: string
+          example: Muse World Tour Updated
+          nullable: true
+        schedule_id:
+          type: string
+          format: uuid
+          nullable: true
+        venue_id:
+          type: string
+          format: uuid
+          nullable: true
+      additionalProperties: false
   securitySchemes:
     bearer_auth:
       type: http

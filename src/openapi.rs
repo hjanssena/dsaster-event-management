@@ -79,10 +79,12 @@ Application errors return an `error` message. Request parsing failures can use a
         crate::api::event_api::get_event_by_id,
         crate::api::event_api::get_events,
         crate::api::event_api::create_event,
+        crate::api::event_api::update_event,
     ),
     components(
         schemas(
             crate::model::dtos::CreateEventRequestDto,
+            crate::model::dtos::UpdateEventRequestDto,
             crate::model::dtos::EventConfirmationDto,
             crate::model::dtos::EventResponseDto,
             crate::model::dtos::EventSummaryDto,
