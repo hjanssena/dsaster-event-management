@@ -46,9 +46,10 @@ Status: proposed target contract. The current `openapi.yml` describes older code
   "description": "One night only.",
   "poster_url": "https://cdn.example.com/posters/6f1c2a9e.jpg",
   "venue_id": "33333333-3333-3333-3333-333333333333",
+  "venue_map_version": 2,
   "currency": "USD",
   "zones": [
-    { "venue_zone_id": "a1d6c7e0-0001-4b1a-9c11-000000000001", "name": "Pit", "price": 65000 }
+    { "venue_zone_id": "z-pit", "name": "Pit", "price": 65000 }
   ],
   "sales_window": { "starts_at": "2026-12-01T16:00:00Z", "ends_at": "2026-12-19T23:00:00Z" },
   "published_at": "2026-11-21T16:00:42Z",
@@ -58,8 +59,8 @@ Status: proposed target contract. The current `openapi.yml` describes older code
 ```
 
 - `tour`, `doors_open_at`, `description` and `poster_url` may be null. Every other field is set on a published event.
-- `zones` is a snapshot of the venue's zones taken when the organizer saved the venue. `venue_zone_id` is the zone id in Venue Service.
-- The event has no venue name, time zone or seats. Read those from Venue Service by `venue_id` and `venue_zone_id`.
+- `zones` is a snapshot of the zones of the venue's seat map, taken when the organizer saved the venue. `venue_map_version` is the map version they came from, and `venue_zone_id` is the zone's id in that map: a string, not a UUID.
+- The event has no venue name, time zone or seats. Read seats from Venue Service at `GET /venues/{venue_id}/map?version={venue_map_version}`: a zone's seats are those whose `zone` is its `venue_zone_id`. That version never changes.
 - `version` goes up by 1 with every change: each edit, scheduling and publication.
 
 **Lifecycle**
@@ -95,7 +96,7 @@ The organizer comes from the token. Each successful edit returns `200` with the 
 | `GET /api/v1/events/mine` | Query `page`, `per_page`, optional `status` | Summaries of the caller's events in any state, most recently updated first |
 | `POST /api/v1/events` | Header `Idempotency-Key: <uuid>`. `name`, optional show details | Creates a `Draft` (`201`) |
 | `PATCH /api/v1/events/{id}` | Any of `name`, `artist`, `tour`, `support_acts`, `event_starts_at`, `doors_open_at`, `description`, `poster_url` | Edits show details |
-| `PUT /api/v1/events/{id}/venue` | `venue_id`, `zones: [{venue_zone_id, price}]` | Sets the venue and zone prices. Zones are read again from Venue Service on every save; a zone left out keeps its price. |
+| `PUT /api/v1/events/{id}/venue` | `venue_id`, `zones: [{venue_zone_id, price}]` | Sets the venue and zone prices. Zones are read again from the venue's latest seat map on every save; a zone left out keeps its price. A venue with no seat map gets `422`. |
 | `PUT /api/v1/events/{id}/sales-window` | `starts_at`, `ends_at` | Sets the sales window |
 | `POST /api/v1/events/{id}/schedule` | | Moves `Draft` to `Scheduled` if every check passes. Already scheduled: `200` until sales open, then `409`. |
 
@@ -163,7 +164,5 @@ A message arrives up to about 61 seconds after the event becomes public (`EVENT_
 
 These affect consumers. Details in [open questions](contract-event-service.md#open-questions).
 
-- Venue Service does not expose zones yet, so no real event can be priced until it does.
-- Venue Service has no time zone and requires a partner token, so fans, Search Service and Booking Service cannot read venue names or seats from it today.
-- Who provides seats per zone to Booking Service.
+- Venue Service has no time zone, and every venue endpoint needs a token (the seat map only `VENUE_OWNER` or `ORGANIZER`). So fans, Search Service and Booking Service cannot read venue names or seats from it today, even though the seats themselves are settled (`venue_map_version`).
 - Topic retention: log compaction is planned, so a new consumer can rebuild state from the topic.
