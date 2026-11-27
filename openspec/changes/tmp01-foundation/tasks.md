@@ -21,7 +21,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
   - Verify with API tests for each "Unparseable requests get a JSON 400" scenario: invalid JSON, wrong type, missing field, missing `Content-Type`, malformed path UUID and `page=abc`. Each must give `400` with a JSON `error` body.
   - Extend `test_http_get_event_by_id_400_bad_uuid` to assert the JSON body.
   - Commit `feat(TMP01): return a JSON 400 for unparseable requests`.
-- [ ] 2.3 Add `RequestTime` and `service::request_time::parse_request_time` (design §4). Switch `CreateEventRequestDto.date` to `RequestTime`, parsed first in `EventService::create_event`.
+- [x] 2.3 Add `RequestTime` and `service::request_time::parse_request_time` (design §4). Switch `CreateEventRequestDto.date` to `RequestTime`, parsed first in `EventService::create_event`.
   - Update its utoipa schema (string, `date-time`) and regenerate `openapi.yml` with `cargo run --bin generate_openapi`.
   - Verify with service tests for the four "Request times need an offset" scenarios: offset converted to UTC, no offset gives `422`, `tomorrow` gives `400`, a number gives `400`. Add an API test that a `date` without an offset gives `422` with a JSON body.
   - Check that `git diff openapi.yml` changes only the `date` schema.

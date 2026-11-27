@@ -8,11 +8,11 @@ use eventManagement_api::{
     core::error::AppError,
     model::dtos::{
         CreateEventRequestDto, EventMediaDto, EventPaginationQueryDto, EventPricingTierDto,
-        EventResponseDto, EventSaleDto, EventScheduleDto, UpdateEventRequestDto,
+        EventResponseDto, EventSaleDto, EventScheduleDto, RequestTime, UpdateEventRequestDto,
     },
     model::partner::{self, PartnerRole},
     repository::MockEventRepository,
-    service::{EventService, MockVenueClient},
+    service::{EventService, MockVenueClient, request_time::parse_request_time},
 };
 
 fn create_partner(role: PartnerRole) -> partner::Model {
@@ -312,7 +312,7 @@ async fn test_create_event_success_minimal_fields() {
     let request = CreateEventRequestDto {
         name: "Arctic Monkeys Live".to_string(),
         artist: "Arctic Monkeys".to_string(),
-        date: future_date,
+        date: (future_date).into(),
         venue_id,
         description: None,
         age_policy: None,
@@ -349,7 +349,7 @@ async fn test_create_event_empty_name() {
     let request = CreateEventRequestDto {
         name: "   ".to_string(), // Inválido: solo espacios
         artist: "Coldplay".to_string(),
-        date: Utc::now() + Duration::days(10),
+        date: (Utc::now() + Duration::days(10)).into(),
         venue_id: Uuid::new_v4(),
         description: None,
         age_policy: None,
@@ -374,7 +374,7 @@ async fn test_create_event_empty_artist() {
     let request = CreateEventRequestDto {
         name: "Lollapalooza 2026".to_string(),
         artist: "".to_string(), // Inválido: vacío
-        date: Utc::now() + Duration::days(10),
+        date: (Utc::now() + Duration::days(10)).into(),
         venue_id: Uuid::new_v4(),
         description: None,
         age_policy: None,
@@ -399,7 +399,7 @@ async fn test_create_event_past_date() {
     let request = CreateEventRequestDto {
         name: "Concierto Antiguo".to_string(),
         artist: "The Beatles".to_string(),
-        date: Utc::now() - Duration::days(1), // Inválido: fecha pasada
+        date: (Utc::now() - Duration::days(1)).into(), // Inválido: fecha pasada
         venue_id: Uuid::new_v4(),
         description: None,
         age_policy: None,
@@ -430,7 +430,7 @@ async fn test_create_event_venue_not_found() {
     let request = CreateEventRequestDto {
         name: "Show en Recinto Desconocido".to_string(),
         artist: "Radiohead".to_string(),
-        date: Utc::now() + Duration::days(15),
+        date: (Utc::now() + Duration::days(15)).into(),
         venue_id: unknown_venue, // No existe en Venue Service
         description: None,
         age_policy: None,
@@ -457,7 +457,7 @@ async fn test_create_event_venue_owner_forbidden() {
     let request = CreateEventRequestDto {
         name: "Evento de Venue Owner".to_string(),
         artist: "Artista".to_string(),
-        date: Utc::now() + Duration::days(10),
+        date: (Utc::now() + Duration::days(10)).into(),
         venue_id: Uuid::new_v4(),
         description: None,
         age_policy: None,
@@ -546,7 +546,7 @@ async fn test_update_event_full_success_preserves_server_fields() {
             UpdateEventRequestDto {
                 name: Some("  Updated Event  ".to_string()),
                 artist: Some("  Updated Artist  ".to_string()),
-                date: Some(new_date),
+                date: Some((new_date).into()),
                 schedule_id: None,
                 venue_id: Some(new_venue),
             },
@@ -715,7 +715,7 @@ async fn test_update_event_not_found_and_validation_errors() {
         UpdateEventRequestDto {
             name: None,
             artist: None,
-            date: Some(Utc::now() - Duration::hours(1)),
+            date: Some((Utc::now() - Duration::hours(1)).into()),
             schedule_id: None,
             venue_id: None,
         },
@@ -762,7 +762,7 @@ async fn test_update_event_explicit_schedule_targeting() {
             UpdateEventRequestDto {
                 name: None,
                 artist: None,
-                date: Some(future_date),
+                date: Some((future_date).into()),
                 schedule_id: None,
                 venue_id: None,
             },
@@ -778,7 +778,7 @@ async fn test_update_event_explicit_schedule_targeting() {
             UpdateEventRequestDto {
                 name: None,
                 artist: None,
-                date: Some(future_date),
+                date: Some((future_date).into()),
                 schedule_id: Some(Uuid::new_v4()),
                 venue_id: None,
             },
@@ -794,7 +794,7 @@ async fn test_update_event_explicit_schedule_targeting() {
             UpdateEventRequestDto {
                 name: None,
                 artist: None,
-                date: Some(future_date),
+                date: Some((future_date).into()),
                 schedule_id: None,
                 venue_id: None,
             },
@@ -810,7 +810,7 @@ async fn test_update_event_explicit_schedule_targeting() {
             UpdateEventRequestDto {
                 name: None,
                 artist: None,
-                date: Some(future_date),
+                date: Some((future_date).into()),
                 schedule_id: Some(target_schedule_id),
                 venue_id: None,
             },
@@ -860,7 +860,7 @@ async fn test_update_event_invalid_changed_venue_and_persistence_failure() {
             UpdateEventRequestDto {
                 name: Some("Will Fail Persistence".to_string()),
                 artist: None,
-                date: Some(Utc::now() + Duration::days(30)),
+                date: Some((Utc::now() + Duration::days(30)).into()),
                 schedule_id: None,
                 venue_id: None,
             },
@@ -877,4 +877,92 @@ async fn test_update_event_invalid_changed_venue_and_persistence_failure() {
         stored.schedules[0].starts_at,
         original.schedules[0].starts_at
     );
+}
+
+// ==================== Request times (ADR-010) ====================
+
+#[test]
+fn test_request_time_with_offset_is_converted_to_utc() {
+    let parsed =
+        parse_request_time(&RequestTime("2099-12-01T10:00:00-06:00".into()), "date").unwrap();
+    assert_eq!(parsed.to_rfc3339(), "2099-12-01T16:00:00+00:00");
+
+    let zulu = parse_request_time(&RequestTime("2099-12-01T16:00:00Z".into()), "date").unwrap();
+    assert_eq!(parsed, zulu);
+}
+
+#[test]
+fn test_request_time_without_offset_is_422() {
+    let err = parse_request_time(&RequestTime("2099-12-01T10:00:00".into()), "date").unwrap_err();
+    match err {
+        AppError::UnprocessableEntity(msg) => {
+            assert!(msg.contains("date"), "{msg}");
+            assert!(msg.contains("timezone offset"), "{msg}");
+        }
+        other => panic!("expected 422, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_request_time_that_is_not_a_time_is_400() {
+    let err = parse_request_time(&RequestTime("tomorrow".into()), "date").unwrap_err();
+    assert!(matches!(err, AppError::BadRequest(_)), "{err:?}");
+}
+
+#[test]
+fn test_request_time_that_is_not_a_string_is_rejected_by_parsing() {
+    // A JSON number never becomes a RequestTime; the body extractor turns this into a 400.
+    let parsed: Result<RequestTime, _> = serde_json::from_str("1700000000");
+    assert!(parsed.is_err());
+}
+
+#[tokio::test]
+async fn test_create_event_date_without_offset_is_422() {
+    let service = EventService::new(
+        Arc::new(MockEventRepository::new()),
+        Arc::new(MockVenueClient::new_permissive()),
+    );
+    let request = CreateEventRequestDto {
+        name: "Arctic Monkeys Live".to_string(),
+        artist: "Arctic Monkeys".to_string(),
+        date: RequestTime("2099-12-01T10:00:00".into()),
+        venue_id: Uuid::new_v4(),
+        description: None,
+        age_policy: None,
+        event_type: None,
+        terms: None,
+    };
+
+    let err = service
+        .create_event(request, &create_partner(PartnerRole::Organizer))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::UnprocessableEntity(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn test_update_event_date_without_offset_is_422() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let organizer = create_partner(PartnerRole::Organizer);
+    let mut event = create_sample_event(Uuid::new_v4(), "Show", "Scheduled", Uuid::new_v4());
+    event.organizer_id = organizer.id;
+    let event_id = event.id;
+    mock_repo.insert(event).await;
+    let service = EventService::new(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let err = service
+        .update_event(
+            event_id,
+            UpdateEventRequestDto {
+                name: None,
+                artist: None,
+                date: Some(RequestTime("2099-12-01T10:00:00".into())),
+                schedule_id: None,
+                venue_id: None,
+            },
+            &organizer,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::UnprocessableEntity(_)), "{err:?}");
 }

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ModelTrait,
     PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
@@ -35,6 +36,7 @@ pub trait EventRepository: Send + Sync {
     async fn create_event(
         &self,
         dto: &CreateEventRequestDto,
+        date: DateTime<Utc>,
         event_id: Uuid,
         organizer_id: Uuid,
     ) -> Result<EventConfirmationDto, AppError>;
@@ -223,6 +225,7 @@ impl EventRepository for SeaOrmEventRepository {
     async fn create_event(
         &self,
         dto: &CreateEventRequestDto,
+        date: DateTime<Utc>,
         event_id: Uuid,
         organizer_id: Uuid,
     ) -> Result<EventConfirmationDto, AppError> {
@@ -256,7 +259,7 @@ impl EventRepository for SeaOrmEventRepository {
         let schedule_active = event_schedule::ActiveModel {
             id: Set(Uuid::new_v4()),
             event_id: Set(event_id),
-            starts_at: Set(dto.date),
+            starts_at: Set(date),
             ends_at: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
@@ -270,7 +273,7 @@ impl EventRepository for SeaOrmEventRepository {
             message: "Event created successfully".to_string(),
             name: dto.name.clone(),
             artist: dto.artist.clone(),
-            date: dto.date,
+            date,
             venue_id: dto.venue_id,
             status,
             created_at: now,
@@ -446,6 +449,7 @@ impl EventRepository for MockEventRepository {
     async fn create_event(
         &self,
         dto: &CreateEventRequestDto,
+        date: DateTime<Utc>,
         event_id: Uuid,
         organizer_id: Uuid,
     ) -> Result<EventConfirmationDto, AppError> {
@@ -471,7 +475,7 @@ impl EventRepository for MockEventRepository {
             artist: Some(dto.artist.clone()),
             schedules: vec![EventScheduleDto {
                 id: Uuid::new_v4(),
-                starts_at: dto.date,
+                starts_at: date,
                 ends_at: None,
             }],
             pricing_tiers: vec![],
@@ -488,7 +492,7 @@ impl EventRepository for MockEventRepository {
             message: "Event created successfully".to_string(),
             name: dto.name.clone(),
             artist: dto.artist.clone(),
-            date: dto.date,
+            date,
             venue_id: dto.venue_id,
             status,
             created_at: now,

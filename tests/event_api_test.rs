@@ -1147,3 +1147,57 @@ async fn test_http_malformed_query_value_is_json_400() {
         .unwrap();
     assert_json_400(response).await;
 }
+
+#[tokio::test]
+async fn test_http_post_date_without_offset_is_json_422() {
+    let mut body = valid_create_body();
+    body["date"] = serde_json::json!("2099-12-01T10:00:00");
+    let response = test_app()
+        .oneshot(organizer_post(&body.to_string(), Some("application/json")))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+    assert!(error_message(response).await.contains("timezone offset"));
+}
+
+#[tokio::test]
+async fn test_http_post_date_as_number_is_json_400() {
+    let mut body = valid_create_body();
+    body["date"] = serde_json::json!(1700000000);
+    let response = test_app()
+        .oneshot(organizer_post(&body.to_string(), Some("application/json")))
+        .await
+        .unwrap();
+    assert_json_400(response).await;
+}
+
+#[tokio::test]
+async fn test_http_patch_date_without_offset_is_json_422() {
+    let mock_repo = Arc::new(MockEventRepository::new());
+    let mut event = create_sample_event(Uuid::new_v4(), "Show");
+    event.organizer_id = DEV_ORGANIZER_ID;
+    let event_id = event.id;
+    mock_repo.insert(event).await;
+    let app = create_test_app(mock_repo, Arc::new(MockVenueClient::new_permissive()));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/events/{event_id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, bearer(DEV_ORGANIZER_ID))
+                .body(Body::from(r#"{"date":"2099-12-01T10:00:00"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(error_message(response).await.contains("timezone offset"));
+}

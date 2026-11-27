@@ -4,6 +4,21 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+// --- Request time ---
+
+/// A time sent by a client, kept as the raw string until the service parses it
+/// with `service::request_time::parse_request_time` (ADR-010). Fields of this type
+/// carry `#[schema(value_type = String, format = DateTime)]` for OpenAPI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct RequestTime(pub String);
+
+impl From<DateTime<Utc>> for RequestTime {
+    fn from(time: DateTime<Utc>) -> Self {
+        RequestTime(time.to_rfc3339())
+    }
+}
+
 // --- Query DTOs ---
 
 #[derive(Debug, Clone, Deserialize, IntoParams)]
@@ -33,8 +48,9 @@ pub struct CreateEventRequestDto {
     pub name: String,
     /// Required performing artist or group. Must contain at least one non-whitespace character.
     pub artist: String,
-    /// Required event start date and time. Use RFC 3339 with a timezone, such as 2099-07-15T20:00:00Z. Must be in the future when submitted.
-    pub date: DateTime<Utc>,
+    /// Required event start date and time, in RFC 3339 with a timezone offset, such as 2099-07-15T20:00:00Z or 2099-07-15T14:00:00-06:00. A time without an offset gets 422. Must be in the future when submitted.
+    #[schema(value_type = String, format = DateTime, example = "2099-07-15T20:00:00Z")]
+    pub date: RequestTime,
     /// Required UUID of the hosting venue. The JSON key venueId is also accepted. The default mock venue service accepts any nonzero UUID; the real venue service must confirm the venue exists.
     #[serde(alias = "venueId")]
     pub venue_id: Uuid,
@@ -116,8 +132,9 @@ pub struct UpdateEventRequestDto {
     pub name: Option<String>,
     #[schema(example = "Muse")]
     pub artist: Option<String>,
-    #[schema(example = "2099-08-20T20:00:00Z")]
-    pub date: Option<DateTime<Utc>>,
+    /// New event start date and time, in RFC 3339 with a timezone offset. A time without an offset gets 422.
+    #[schema(value_type = Option<String>, format = DateTime, example = "2099-08-20T20:00:00Z")]
+    pub date: Option<RequestTime>,
     pub schedule_id: Option<Uuid>,
     #[serde(alias = "venueId")]
     pub venue_id: Option<Uuid>,

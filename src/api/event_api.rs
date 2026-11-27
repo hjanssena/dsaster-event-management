@@ -109,7 +109,7 @@ pub async fn get_events(
         (status = 400, description = "Malformed request (invalid JSON, wrong type, missing field or Content-Type), empty name or artist, or a date that is not in the future", body = ErrorResponseDto),
         (status = 401, description = "Token ausente o inválido, o partner inexistente", body = ErrorResponseDto),
         (status = 403, description = "El partner autenticado no es organizador", body = ErrorResponseDto),
-        (status = 422, description = "Recinto inexistente o inválido", body = ErrorResponseDto),
+        (status = 422, description = "Date without a timezone offset, or a venue that does not exist", body = ErrorResponseDto),
         (status = 500, description = "Error interno del servidor", body = ErrorResponseDto)
     ),
     security(
@@ -139,7 +139,7 @@ pub async fn create_event(
         (status = 401, description = "Missing, invalid, or unknown partner bearer token", body = ErrorResponseDto),
         (status = 403, description = "Authenticated partner is not the owning organizer", body = ErrorResponseDto),
         (status = 404, description = "Event not found", body = ErrorResponseDto),
-        (status = 422, description = "Target venue or schedule_id is invalid or does not exist", body = ErrorResponseDto),
+        (status = 422, description = "Date without a timezone offset, or a target venue or schedule_id that is invalid or does not exist", body = ErrorResponseDto),
         (status = 500, description = "Internal server or persistence error", body = ErrorResponseDto)
     ),
     security(

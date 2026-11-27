@@ -10,6 +10,7 @@ use crate::model::dtos::{
 use crate::model::partner::{self, PartnerRole};
 use crate::repository::EventRepository;
 use crate::service::VenueClient;
+use crate::service::request_time::parse_request_time;
 
 fn validate_non_empty_text(value: String, field_label: &str) -> Result<String, AppError> {
     let trimmed = value.trim();
@@ -107,6 +108,9 @@ impl EventService {
             ));
         }
 
+        // Times are parsed before any other check: no offset is 422, not a time is 400 (ADR-010)
+        let date = parse_request_time(&dto.date, "date")?;
+
         // 1. Validar nombre no vacío
         if dto.name.trim().is_empty() {
             return Err(AppError::BadRequest(
@@ -123,7 +127,7 @@ impl EventService {
 
         // 3. Validar fecha válida en calendario (debe ser futura)
         let now = Utc::now();
-        if dto.date <= now {
+        if date <= now {
             return Err(AppError::BadRequest(
                 "Event date must be a valid future calendar date".to_string(),
             ));
@@ -142,7 +146,9 @@ impl EventService {
         let event_id = Uuid::new_v4();
 
         // 6. Persistir atómicamente en base de datos
-        self.repo.create_event(&dto, event_id, organizer_id).await
+        self.repo
+            .create_event(&dto, date, event_id, organizer_id)
+            .await
     }
 
     pub async fn update_event(
@@ -200,7 +206,14 @@ impl EventService {
             .map(|value| validate_non_empty_text(value, "Artist name"))
             .transpose()?;
 
-        let schedule_update = match dto.date {
+        // No offset is 422, not a time is 400 (ADR-010)
+        let new_date = dto
+            .date
+            .as_ref()
+            .map(|date| parse_request_time(date, "date"))
+            .transpose()?;
+
+        let schedule_update = match new_date {
             Some(new_date) => {
                 if new_date <= Utc::now() {
                     return Err(AppError::BadRequest(
