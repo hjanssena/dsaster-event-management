@@ -12,7 +12,7 @@ Each task is one commit, in the message given. Each task's tests must pass befor
 
 ## 2. Errors and request parsing
 
-- [ ] 2.1 Add `AppError::Conflict` and `AppError::ServiceUnavailable { message, retry_after }`, and classify `DbErr` in `into_response` (design §2).
+- [x] 2.1 Add `AppError::Conflict` and `AppError::ServiceUnavailable { message, retry_after }`, and classify `DbErr` in `into_response` (design §2).
   - Verify with tests that a conflict gives `409`, a known wait gives `503` with `Retry-After: 12`, and a `503` without a wait sets no header (the middleware adds it in 5.1).
   - Also test that `ConnectionAcquire(Timeout)`, `Conn` and a SQLSTATE `57014` error give `503`, while a generic `DbErr` gives `500` with `Internal server error`.
   - Commit `feat(TMP01): add conflict and service unavailable errors`.
