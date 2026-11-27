@@ -52,7 +52,10 @@ async fn main() {
             "Iniciando HttpVenueClient conectado a {}",
             config.venue_service_url
         );
-        Arc::new(HttpVenueClient::new(config.venue_service_url.clone()))
+        Arc::new(HttpVenueClient::with_token(
+            config.venue_service_url.clone(),
+            config.venue_service_token.clone(),
+        ))
     };
 
     let event_service = Arc::new(EventService::new(repo, venue_client));
